@@ -1,0 +1,32 @@
+[package]
+name = "mensa-api"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.38.0", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1.0.203", features = ["derive"] }
+chrono = { version = "0.4.38", features = ["serde"] }
+axum = { version = "0.7.5", features = ["query"] }
+jsonwebtoken = "9.3.0"
+serde_json = "1.0.120"
+reqwest_cookie_store = { version = "0.8.0", features = ["serde"] }
+scraper = "0.19.0"
+reqwest = { version = "0.12.5", features = ["cookies", "json"] }
+anyhow = "1.0.86"
+cookie_store = "0.21.0"
+tower-http = { version = "0.5.2", features = ["cors"] }
+http = "1.1.0"
+regex = "1.10.5"
+lazy_static = "1.5.0"
+rusqlite = "0.31.0"
+tokio-cron-scheduler = "0.10.2"
+pretty_env_logger = "0.5.0"
+log = "0.4.22"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
