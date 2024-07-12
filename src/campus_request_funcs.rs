@@ -4,7 +4,7 @@ use scraper::{Element, ElementRef, Html, Selector};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use crate::db_operations::{get_meal_from_db, mensa_name_get_id_db, save_meal_to_db};
+use crate::db_operations::{get_jsonmeals_from_db, mensa_name_get_id_db, save_meal_to_db};
 use crate::types::{DataForMensaForDay, MealGroup, SingleMeal};
 
 pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u8>> {
@@ -19,7 +19,7 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u8>> {
     // serialize downloaded meals
     for mensa_data_for_day in all_data_for_day {
         let downloaded_json_text = serde_json::to_string(&mensa_data_for_day.meal_groups).unwrap();
-        let db_json_text = get_meal_from_db(&date_string, mensa_data_for_day.mensa_id).await?;
+        let db_json_text = get_jsonmeals_from_db(&date_string, mensa_data_for_day.mensa_id).await?;
 
         // if downloaded meals are different from cached meals, update cache
         if db_json_text.is_none() || downloaded_json_text != db_json_text.unwrap() {
@@ -142,10 +142,16 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                 let text = item.inner_html();
                 // for whatever reason there might be, sometimes this element exists without any content
                 if !text.is_empty() {
-                    item.inner_html()
-                        .split('·')
-                        .map(|slice| slice.trim().to_string())
-                        .collect()
+                    let mut add_ingr_dedup: Vec<String> = vec![];
+                    let inner_html = item.inner_html();
+                    let iter = inner_html.split('·').map(|slice| slice.trim().to_string());
+                    for ingr in iter {
+                        if !add_ingr_dedup.contains(&ingr) {
+                            add_ingr_dedup.push(ingr);
+                        }
+                    }
+
+                    add_ingr_dedup
                 } else {
                     // in that case, return empty vec (otherwise it would be a vec with one empty string in it)
                     vec![]
@@ -179,11 +185,16 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
             }
             Some(meal_group) => {
                 // meal group of this type already exists, add meal to it
-                meal_group.sub_meals.push(SingleMeal {
+
+                let add_meal = SingleMeal {
                     name: title,
                     price,
                     additional_ingredients,
-                });
+                };
+
+                if !meal_group.sub_meals.contains(&add_meal) {
+                    meal_group.sub_meals.push(add_meal);
+                }
             }
         }
     }

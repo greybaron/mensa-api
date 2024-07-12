@@ -1,8 +1,4 @@
 use std::sync::Arc;
-
-use campus_request_funcs::get_mensen;
-use cronjobs::{start_mensacache_and_campusdual_job, update_cache};
-use db_operations::{check_or_create_db_tables, init_mensa_id_db};
 use tokio::{net::TcpListener, sync::Mutex};
 use types::AppState;
 
@@ -12,6 +8,9 @@ mod db_operations;
 mod routes;
 mod services;
 mod types;
+use campus_request_funcs::get_mensen;
+use cronjobs::{start_mensacache_and_campusdual_job, update_cache};
+use db_operations::{check_or_create_db_tables, init_mensa_id_db};
 
 #[tokio::main]
 async fn main() {
