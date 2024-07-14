@@ -18,5 +18,5 @@ RUN apt-get update && \
 RUN c_rehash
 COPY --from=build ./target/release/mensa-api /app/mensa-api
 WORKDIR /app/data
-EXPOSE 8080
+EXPOSE 9090
 ENTRYPOINT ["/app/mensa-api"]
