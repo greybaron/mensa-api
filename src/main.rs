@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{env, sync::Arc};
 use tokio::{net::TcpListener, sync::Mutex};
 use types::AppState;
 
@@ -14,6 +14,9 @@ use db_operations::{check_or_create_db_tables, init_mensa_id_db};
 
 #[tokio::main]
 async fn main() {
+    if env::var(pretty_env_logger::env_logger::DEFAULT_FILTER_ENV).is_err() {
+        env::set_var("RUST_LOG", "info");
+    }
     pretty_env_logger::init_timed();
     log::info!("Starting API...");
 
@@ -39,7 +42,7 @@ async fn main() {
         .await
         .expect("Unable to conne to connect to the server");
 
-    println!("Listening on {}", listener.local_addr().unwrap());
+    log::info!("Listening on {}", listener.local_addr().unwrap());
 
     let app = routes::app(shared_state).await;
 

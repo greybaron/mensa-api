@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Weekday};
+use tokio::task::JoinSet;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::campus_request_funcs::parse_and_save_meals;
@@ -20,7 +21,7 @@ pub async fn start_mensacache_and_campusdual_job() {
     sched.add(cache_job).await.unwrap();
 }
 
-pub async fn update_cache() -> Result<Vec<u8>> {
+pub async fn update_cache() -> Result<()> {
     // will be run periodically: requests all possible dates (heute/morgen/ueb) and creates/updates caches
     // returns a vector of mensa locations whose 'today' plan was updated
 
@@ -66,17 +67,16 @@ pub async fn update_cache() -> Result<Vec<u8>> {
         }
     }
 
-    // add task handles to vec so that they can be awaited after spawing
-    let mut handles = Vec::new();
+    // add tasks to joinset to execute concurrently
+    let mut set = JoinSet::new();
     let mut mensen_today_changed = Vec::new();
 
     for day in &days {
-        handles.push(tokio::spawn(parse_and_save_meals(*day)))
+        set.spawn(parse_and_save_meals(*day));
     }
 
-    // awaiting results of every task
-    for handle in handles {
-        let mut changed_mensen_ids = handle.await??;
+    while let Some(res) = set.join_next().await {
+        let mut changed_mensen_ids = res??;
         mensen_today_changed.append(&mut changed_mensen_ids);
     }
 
@@ -85,5 +85,5 @@ pub async fn update_cache() -> Result<Vec<u8>> {
         mensen_today_changed.len()
     );
 
-    Ok(mensen_today_changed)
+    Ok(())
 }
