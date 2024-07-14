@@ -163,8 +163,9 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
 
         let mut price = String::new();
         meal_element.select(&price_sel).for_each(|price_element| {
-            price += &price_element.inner_html();
+            price += &price_element.inner_html().replace("&nbsp;", " ");
         });
+        price = price.trim().to_string();
 
         // oh my
         // oh my
