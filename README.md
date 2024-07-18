@@ -8,6 +8,7 @@ While being fairly unopinionated, this API is part of the [**CampusUnbloat**](ht
 
 ## Build Dependencies
 * A working Rust toolchain
+* SSL development files (e.g. `libssl-dev` on Debian)
 * SQLite3 development files (e.g. `libsqlite3-dev` on Debian)
 
 ## Using the API
