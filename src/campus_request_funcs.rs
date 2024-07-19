@@ -135,7 +135,9 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
             .select(&title_sel)
             .next()
             .context("meal title element not found")?
-            .inner_html();
+            .inner_html()
+            .replace("&nbsp;", " ")
+            .replace("&amp;", "&");
 
         let additional_ingredients =
             if let Some(item) = meal_element.select(&additional_ingredients_sel).next() {
@@ -163,7 +165,10 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
 
         let mut price = String::new();
         meal_element.select(&price_sel).for_each(|price_element| {
-            price += &price_element.inner_html().replace("&nbsp;", " ");
+            price += &price_element
+                .inner_html()
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&");
         });
         price = price.trim().to_string();
 
