@@ -22,49 +22,17 @@ pub async fn start_mensacache_and_campusdual_job() {
 }
 
 pub async fn update_cache() -> Result<()> {
-    // will be run periodically: requests all possible dates (heute/morgen/ueb) and creates/updates caches
-    // returns a vector of mensa locations whose 'today' plan was updated
+    // will be run periodically: requests all mensa plans for the next 7 days
+    // returns a vector of mensa locations whose 'today' plan was updated (here only used for dbg logging)
 
-    // days will be selected using this rule:
-    // if current day ... then ...
-
-    //     Thu =>
-    //         'heute' => thursday
-    //         'morgen' => friday
-    //         'uebermorgen' => monday
-
-    //     Fri =>
-    //         'heute' => friday
-    //         'morgen'/'uebermorgen' => monday
-
-    //     Sat =>
-    //         'heute'/'morgen'/'uebermorgen' => monday
-
-    //     Sun =>
-    //         'heute'/'morgen' => monday
-    //         'uebermorgen' => tuesday
-
-    //     Mon/Tue/Wed => as you'd expect
-
-    let mut days: Vec<NaiveDate> = Vec::new();
-
-    // get at most 3 days from (inclusive) today, according to the rule above
     let today = chrono::Local::now();
-
-    for i in 0..3 {
+    let mut days: Vec<NaiveDate> = Vec::new();
+    for i in 0..8 {
         let day: DateTime<FixedOffset> = (today + Duration::days(i)).into();
 
         if ![Weekday::Sat, Weekday::Sun].contains(&day.weekday()) {
             days.push(day.date_naive());
-        // weekend day is not first day (i>0) but within 3 day range, so add monday & break
-        } else if i != 0 {
-            if day.weekday() == Weekday::Sat {
-                days.push((day + Duration::days(2)).date_naive());
-            } else {
-                days.push((day + Duration::days(1)).date_naive());
-            }
-            break;
-        }
+        } 
     }
 
     // add tasks to joinset to execute concurrently
