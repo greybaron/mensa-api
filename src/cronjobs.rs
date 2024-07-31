@@ -27,12 +27,12 @@ pub async fn update_cache() -> Result<()> {
 
     let today = chrono::Local::now();
     let mut days: Vec<NaiveDate> = Vec::new();
-    for i in 0..8 {
+    for i in 0..7 {
         let day: DateTime<FixedOffset> = (today + Duration::days(i)).into();
 
         if ![Weekday::Sat, Weekday::Sun].contains(&day.weekday()) {
             days.push(day.date_naive());
-        } 
+        }
     }
 
     // add tasks to joinset to execute concurrently
@@ -44,8 +44,15 @@ pub async fn update_cache() -> Result<()> {
     }
 
     while let Some(res) = set.join_next().await {
-        let mut changed_mensen_ids = res??;
-        mensen_today_changed.append(&mut changed_mensen_ids);
+        match res? {
+            Ok(mut changed_mensen_ids) => {
+                mensen_today_changed.append(&mut changed_mensen_ids);
+
+            }
+            Err(e) => {
+                log::warn!("Error in cache execution: {}", e);
+            }
+        }
     }
 
     log::info!(

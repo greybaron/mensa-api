@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use crate::db_operations::{get_jsonmeals_from_db, mensa_name_get_id_db, save_meal_to_db};
-use crate::types::{DataForMensaForDay, MealGroup, SingleMeal};
+use crate::types::{DataForMensaForDay, MealGroup, MealVariation, SingleMeal};
 
 pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u8>> {
     let mut today_changed_mensen_ids = vec![];
@@ -122,6 +122,8 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
     let title_sel = Selector::parse(r#"h4"#).unwrap();
     let additional_ingredients_sel = Selector::parse(r#"div.meal-components"#).unwrap();
     let price_sel = Selector::parse(r#"div.meal-prices>span"#).unwrap();
+    let allergens_sel = Selector::parse(r#"div.meal-allergens>p"#).unwrap();
+    let variations_sel: Selector = Selector::parse(r#"div.meal-subitems"#).unwrap();
 
     // quick && dirty
     for meal_element in meal_container.select(&meal_sel) {
@@ -148,8 +150,9 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                     let inner_html = item.inner_html();
                     let iter = inner_html.split('·').map(|slice| slice.trim().to_string());
                     for ingr in iter {
-                        if !add_ingr_dedup.contains(&ingr) {
-                            add_ingr_dedup.push(ingr);
+                        let clean = ingr.replace("&nbsp;", " ").replace("&amp; ", "");
+                        if !add_ingr_dedup.contains(&clean) {
+                            add_ingr_dedup.push(clean);
                         }
                     }
 
@@ -172,6 +175,44 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
         });
         price = price.trim().to_string();
 
+        let allergens = meal_element
+            .select(&allergens_sel)
+            .next()
+            .map(|el| el.inner_html());
+
+        let variations = meal_element.select(&variations_sel).next().map(|el| {
+            let mut variations_vec: Vec<MealVariation> = vec![];
+
+            for variation in el.child_elements() {
+                let name = variation
+                    .select(&Selector::parse("h5").unwrap())
+                    .next()
+                    .unwrap()
+                    .text()
+                    .next()
+                    .unwrap()
+                    .trim()
+                    .to_string();
+
+                let allergens_and_add = variation
+                    .select(&Selector::parse("p").unwrap())
+                    .next()
+                    .unwrap()
+                    .text()
+                    .last()
+                    .unwrap()
+                    .replace(": ", "")
+                    .to_string();
+
+                variations_vec.push(MealVariation {
+                    name,
+                    allergens_and_add,
+                });
+            }
+            
+            variations_vec
+        });
+
         // oh my
         // oh my
         match v_meal_groups
@@ -186,6 +227,8 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                         name: title,
                         price,
                         additional_ingredients,
+                        allergens,
+                        variations,
                     }],
                 });
             }
@@ -196,6 +239,8 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                     name: title,
                     price,
                     additional_ingredients,
+                    allergens,
+                    variations,
                 };
 
                 if !meal_group.sub_meals.contains(&add_meal) {

@@ -59,13 +59,4 @@ pub async fn get_day_at_mensa(
             Ok(Json(day_meals))
         }
     }
-    // let date_str = "2021-10-01";
-    // let date = chrono::DateTime::parse_from_rfc2822("2024-07-11").unwrap().naive_local();
-
-    // dbg!(date);
-    // let date = DateTime::naive_local(&self)
-    // let day_meals = get_meals_from_db(date, 170).await.unwrap().unwrap();
-
-    // Json(day_meals)
-    // Ok(Json(vec![]))
 }
