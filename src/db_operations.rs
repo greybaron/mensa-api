@@ -4,7 +4,7 @@ use rusqlite::{params, Connection};
 use std::collections::BTreeMap;
 
 use crate::{
-    campus_request_funcs::build_date_string,
+    stuwe_request_funcs::build_date_string,
     types::{MealGroup, DB_FILENAME},
 };
 

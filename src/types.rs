@@ -40,7 +40,7 @@ pub struct SingleMeal {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct MealVariation {
     pub name: String,
-    pub allergens_and_add: String,
+    pub allergens_and_add: Option<String>,
 }
 
 pub const DB_FILENAME: &str = "meals.sqlite";

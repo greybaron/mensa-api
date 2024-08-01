@@ -3,7 +3,7 @@ use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Weekday};
 use tokio::task::JoinSet;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::campus_request_funcs::parse_and_save_meals;
+use crate::stuwe_request_funcs::parse_and_save_meals;
 
 pub async fn start_mensacache_and_campusdual_job() {
     let sched = JobScheduler::new().await.unwrap();

@@ -2,13 +2,13 @@ use std::{env, sync::Arc};
 use tokio::{net::TcpListener, sync::Mutex};
 use types::AppState;
 
-mod campus_request_funcs;
+mod stuwe_request_funcs;
 mod cronjobs;
 mod db_operations;
 mod routes;
 mod services;
 mod types;
-use campus_request_funcs::get_mensen;
+use stuwe_request_funcs::get_mensen;
 use cronjobs::{start_mensacache_and_campusdual_job, update_cache};
 use db_operations::{check_or_create_db_tables, init_mensa_id_db};
 

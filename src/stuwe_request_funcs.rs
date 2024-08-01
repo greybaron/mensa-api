@@ -197,19 +197,14 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                 let allergens_and_add = variation
                     .select(&Selector::parse("p").unwrap())
                     .next()
-                    .unwrap()
-                    .text()
-                    .last()
-                    .unwrap()
-                    .replace(": ", "")
-                    .to_string();
+                    .map(|el| el.text().last().unwrap().replace(": ", "").to_string());
 
                 variations_vec.push(MealVariation {
                     name,
                     allergens_and_add,
                 });
             }
-            
+
             variations_vec
         });
 
