@@ -47,7 +47,6 @@ pub async fn update_cache() -> Result<()> {
         match res? {
             Ok(mut changed_mensen_ids) => {
                 mensen_today_changed.append(&mut changed_mensen_ids);
-
             }
             Err(e) => {
                 log::warn!("Error in cache execution: {}", e);
