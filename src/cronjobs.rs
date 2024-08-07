@@ -19,6 +19,7 @@ pub async fn start_mensacache_and_campusdual_job() {
     })
     .unwrap();
     sched.add(cache_job).await.unwrap();
+    sched.start().await.unwrap();
 }
 
 pub async fn update_cache() -> Result<()> {
