@@ -16,7 +16,7 @@ reqwest = { version = "0.12.5", features = ["rustls-tls"], default-features = fa
 anyhow = "1.0.86"
 tower-http = { version = "0.5.2", features = ["cors"] }
 http = "1.1.0"
-rusqlite = "0.32.1"
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 tokio-cron-scheduler = "0.10.2"
 pretty_env_logger = "0.5.0"
 log = "0.4.22"
