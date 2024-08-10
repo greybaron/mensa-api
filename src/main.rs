@@ -18,7 +18,7 @@ async fn main() {
         env::set_var("RUST_LOG", "info");
     }
     pretty_env_logger::init_timed();
-    log::info!("Starting API...");
+    log::info!("Starting Mensa API...");
 
     //// DB setup
     check_or_create_db_tables().unwrap();
