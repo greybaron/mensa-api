@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::{Datelike, NaiveDate};
+use lazy_static::lazy_static;
 use scraper::{Element, ElementRef, Html, Selector};
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -15,7 +16,7 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u8>> {
     // getting data from server
     let downloaded_html = reqwest_get_html_text(&date_string).await?;
 
-    let all_data_for_day = extract_data_from_html(&downloaded_html, day).await?;
+    let all_data_for_day = extract_data_from_html(&downloaded_html).await?;
     // serialize downloaded meals
     for mensa_data_for_day in all_data_for_day {
         let downloaded_json_text = serde_json::to_string(&mensa_data_for_day.meal_groups).unwrap();
@@ -64,33 +65,24 @@ async fn reqwest_get_html_text(date: &str) -> Result<String> {
     Ok(txt)
 }
 
-async fn extract_data_from_html(
-    html_text: &str,
-    requested_date: NaiveDate,
-) -> Result<Vec<DataForMensaForDay>> {
+async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDay>> {
     let mut all_data_for_day = vec![];
 
     let now = Instant::now();
     let document = Html::parse_fragment(html_text);
 
-    let date_button_group_sel = Selector::parse(r#"button.date-button.is--active"#).unwrap();
-    let active_date_button = document
-        .select(&date_button_group_sel)
+    lazy_static! {
+        static ref DATE_BUTTON_GROUPSEL: Selector =
+            Selector::parse(r#"button.date-button.is--active"#).unwrap();
+        static ref CONTAINER_SEL: Selector = Selector::parse(r#"div.meal-overview"#).unwrap();
+    };
+
+    document
+        .select(&DATE_BUTTON_GROUPSEL)
         .next()
         .context("Recv. StuWe site is invalid (has no date)")?;
 
-    let received_date_str = active_date_button.attr("data-date").unwrap().to_owned();
-    let received_date = NaiveDate::parse_from_str(&received_date_str, "%Y-%m-%d")
-        .context("unexpected StuWe date format")?;
-
-    // if received date != requested date -> return empty meals struct (isn't an error, just StuWe being weird)
-    if received_date != requested_date {
-        return Ok(vec![]);
-    }
-
-    let container_sel = Selector::parse(r#"div.meal-overview"#).unwrap();
-
-    let meal_containers: Vec<ElementRef> = document.select(&container_sel).collect();
+    let meal_containers: Vec<ElementRef> = document.select(&CONTAINER_SEL).collect();
     if meal_containers.is_empty() {
         return Err(anyhow!("StuWe site has no meal containers"));
     }
@@ -117,24 +109,29 @@ async fn extract_data_from_html(
 fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Result<Vec<MealGroup>> {
     let mut v_meal_groups: Vec<MealGroup> = Vec::new();
 
-    let meal_sel = Selector::parse(r#"div.type--meal"#).unwrap();
-    let meal_type_sel = Selector::parse(r#"div.meal-tags>.tag"#).unwrap();
-    let title_sel = Selector::parse(r#"h4"#).unwrap();
-    let additional_ingredients_sel = Selector::parse(r#"div.meal-components"#).unwrap();
-    let price_sel = Selector::parse(r#"div.meal-prices>span"#).unwrap();
-    let allergens_sel = Selector::parse(r#"div.meal-allergens>p"#).unwrap();
-    let variations_sel: Selector = Selector::parse(r#"div.meal-subitems"#).unwrap();
+    lazy_static! {
+        static ref MEAL_SEL: Selector = Selector::parse(r#"div.type--meal"#).unwrap();
+        static ref MEAL_TYPE_SEL: Selector = Selector::parse(r#"div.meal-tags>.tag"#).unwrap();
+        static ref TITLE_SEL: Selector = Selector::parse(r#"h4"#).unwrap();
+        static ref ADDITIONAL_INGREDIENTS_SEL: Selector =
+            Selector::parse(r#"div.meal-components"#).unwrap();
+        static ref PRICE_SEL: Selector = Selector::parse(r#"div.meal-prices>span"#).unwrap();
+        static ref ALLERGENS_SEL: Selector = Selector::parse(r#"div.meal-allergens>p"#).unwrap();
+        static ref VARIATIONS_SEL: Selector = Selector::parse(r#"div.meal-subitems"#).unwrap();
+        static ref H5_SELECTOR: Selector = Selector::parse("h5").unwrap();
+        static ref P_SELECTOR: Selector = Selector::parse("p").unwrap();
+    };
 
     // quick && dirty
-    for meal_element in meal_container.select(&meal_sel) {
+    for meal_element in meal_container.select(&MEAL_SEL) {
         let meal_type = meal_element
-            .select(&meal_type_sel)
+            .select(&MEAL_TYPE_SEL)
             .next()
             .context("meal category element not found")?
             .inner_html();
 
         let title = meal_element
-            .select(&title_sel)
+            .select(&TITLE_SEL)
             .next()
             .context("meal title element not found")?
             .inner_html()
@@ -142,7 +139,7 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
             .replace("&amp;", "&");
 
         let additional_ingredients =
-            if let Some(item) = meal_element.select(&additional_ingredients_sel).next() {
+            if let Some(item) = meal_element.select(&ADDITIONAL_INGREDIENTS_SEL).next() {
                 let text = item.inner_html();
                 // for whatever reason there might be, sometimes this element exists without any content
                 if !text.is_empty() {
@@ -167,7 +164,7 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
             };
 
         let mut price = String::new();
-        meal_element.select(&price_sel).for_each(|price_element| {
+        meal_element.select(&PRICE_SEL).for_each(|price_element| {
             price += &price_element
                 .inner_html()
                 .replace("&nbsp;", " ")
@@ -176,16 +173,16 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
         price = price.trim().to_string();
 
         let allergens = meal_element
-            .select(&allergens_sel)
+            .select(&ALLERGENS_SEL)
             .next()
             .map(|el| el.inner_html());
 
-        let variations = meal_element.select(&variations_sel).next().map(|el| {
+        let variations = meal_element.select(&VARIATIONS_SEL).next().map(|el| {
             let mut variations_vec: Vec<MealVariation> = vec![];
 
             for variation in el.child_elements() {
                 let name = variation
-                    .select(&Selector::parse("h5").unwrap())
+                    .select(&H5_SELECTOR)
                     .next()
                     .unwrap()
                     .text()
@@ -195,7 +192,7 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                     .to_string();
 
                 let allergens_and_add = variation
-                    .select(&Selector::parse("p").unwrap())
+                    .select(&P_SELECTOR)
                     .next()
                     .map(|el| el.text().last().unwrap().replace(": ", "").to_string());
 
