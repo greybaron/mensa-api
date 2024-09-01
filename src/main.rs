@@ -46,6 +46,14 @@ async fn main() {
 
     let app = routes::app(shared_state).await;
 
+    // used for building profiling data as i'm too lazy to set up test/bench
+    if env::var_os("PGOONLY").is_some() {
+        for _ in 0..20 {
+            update_cache().await.unwrap();
+        }
+        std::process::exit(0);
+    }
+
     axum::serve(listener, app)
         .await
         .expect("Error serving application");

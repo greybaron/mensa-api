@@ -3,7 +3,12 @@ COPY ./src ./src
 COPY ./Cargo.lock .
 COPY ./Cargo.toml .
 
-RUN cargo build --release
+ENV PGOONLY=y
+RUN rustup component add llvm-tools-preview && \
+  cargo install cargo-pgo && \
+  cargo pgo build && \
+  cargo pgo run && \
+  cargo pgo optimize
 
 FROM debian:bookworm-slim AS mensa-api
 RUN apt-get update && \
@@ -14,7 +19,7 @@ RUN apt-get update && \
   apt-get clean -y && \
   rm -rf /var/lib/apt/lists/*
 
-COPY --from=build ./target/release/mensa-api /app/mensa-api
+COPY --from=build ./target/*/release/mensa-api /app/mensa-api
 WORKDIR /app/data
 EXPOSE 9090
 ENTRYPOINT ["/app/mensa-api"]
