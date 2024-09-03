@@ -1,7 +1,8 @@
-use std::{env, sync::Arc};
-use tokio::{net::TcpListener, sync::Mutex};
-use types::AppState;
+use constants::{MENSEN_MAP, MENSEN_MAP_INV};
+use std::env;
+use tokio::net::TcpListener;
 
+mod constants;
 mod cronjobs;
 mod db_operations;
 mod routes;
@@ -10,7 +11,7 @@ mod stuwe_request_funcs;
 mod types;
 use cronjobs::{start_mensacache_and_campusdual_job, update_cache};
 use db_operations::{check_or_create_db_tables, init_mensa_id_db};
-use stuwe_request_funcs::get_mensen;
+use stuwe_request_funcs::{get_mensen, invert_map};
 
 #[tokio::main]
 async fn main() {
@@ -23,12 +24,12 @@ async fn main() {
     //// DB setup
     check_or_create_db_tables().unwrap();
 
-    let mensen = get_mensen().await.unwrap();
-    init_mensa_id_db(&mensen).unwrap();
+    MENSEN_MAP.set(get_mensen().await.unwrap()).unwrap();
+    MENSEN_MAP_INV
+        .set(invert_map(MENSEN_MAP.get().unwrap()))
+        .unwrap();
 
-    let shared_state = Arc::new(AppState {
-        data: Mutex::new(mensen),
-    });
+    init_mensa_id_db().unwrap();
 
     // always update cache on startup
     match update_cache().await {
@@ -44,7 +45,7 @@ async fn main() {
 
     log::info!("Listening on {}", listener.local_addr().unwrap());
 
-    let app = routes::app(shared_state).await;
+    let app = routes::app().await;
 
     // used for building profiling data as i'm too lazy to set up test/bench
     if env::var_os("PGOONLY").is_some() {

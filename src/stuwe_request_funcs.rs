@@ -1,12 +1,43 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use chrono::{Datelike, NaiveDate};
 use lazy_static::lazy_static;
 use scraper::{Element, ElementRef, Html, Selector};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use crate::db_operations::{get_jsonmeals_from_db, mensa_name_get_id_db, save_meal_to_db};
+use crate::constants::MENSEN_MAP_INV;
+use crate::db_operations::{get_jsonmeals_from_db, save_meal_to_db};
 use crate::types::{DataForMensaForDay, MealGroup, MealVariation, SingleMeal};
+
+// pub async fn run_benchmark() {
+//     println!("downloading htmls");
+//     let today = chrono::Local::now();
+
+//     let mut strings: Vec<String> = Vec::new();
+//     for i in 0..7 {
+//         let day: chrono::DateTime<chrono::FixedOffset> = (today + chrono::Duration::days(i)).into();
+
+//         if ![chrono::Weekday::Sat, chrono::Weekday::Sun].contains(&day.weekday()) {
+//             strings.push(
+//                 reqwest_get_html_text(&build_date_string(day.date_naive()))
+//                     .await
+//                     .unwrap(),
+//             );
+//         }
+//     }
+//     println!("got {} htmls", strings.len());
+//     let now = Instant::now();
+//     let its = 100;
+
+//     // ST
+//     for _ in 0..100 {
+//         for string in &strings {
+//             extract_data_from_html(string).await.unwrap();
+//         }
+//     }
+
+//     println!("{} in {:.2?}", its * strings.len(), now.elapsed());
+// }
 
 pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u8>> {
     let mut today_changed_mensen_ids = vec![];
@@ -61,7 +92,7 @@ async fn reqwest_get_html_text(date: &str) -> Result<String> {
         "https://www.studentenwerk-leipzig.de/mensen-cafeterien/speiseplan?date=".to_string();
     let txt = reqwest::get(url_base + date).await?.text().await?;
 
-    log::info!("reqwest_get_html_text: {:.2?}", now.elapsed());
+    log::debug!("reqwest_get_html_text: {:.2?}", now.elapsed());
     Ok(txt)
 }
 
@@ -82,18 +113,15 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDa
         .next()
         .context("Recv. StuWe site is invalid (has no date)")?;
 
-    let meal_containers: Vec<ElementRef> = document.select(&CONTAINER_SEL).collect();
-    if meal_containers.is_empty() {
-        return Err(anyhow!("StuWe site has no meal containers"));
-    }
+    let meal_containers = document.select(&CONTAINER_SEL);
 
     for meal_container in meal_containers {
         if let Some(mensa_title_element) = meal_container.prev_sibling_element() {
             let mensa_title = mensa_title_element.inner_html();
             let meals = extract_mealgroup_from_htmlcontainer(meal_container)?;
-            if let Some(mensa_id) = mensa_name_get_id_db(&mensa_title)? {
+            if let Some(mensa_id) = MENSEN_MAP_INV.get().unwrap().get(&mensa_title) {
                 all_data_for_day.push(DataForMensaForDay {
-                    mensa_id,
+                    mensa_id: *mensa_id,
                     meal_groups: meals,
                 });
             } else {
@@ -282,4 +310,8 @@ pub async fn get_mensen() -> Result<BTreeMap<u8, String>> {
     } else {
         Ok(mensen)
     }
+}
+
+pub fn invert_map(map: &BTreeMap<u8, String>) -> BTreeMap<String, u8> {
+    map.iter().map(|(k, v)| (v.clone(), *k)).collect()
 }

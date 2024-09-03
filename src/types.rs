@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use axum::{
     body::Body,
     response::{IntoResponse, Response},
@@ -8,7 +6,6 @@ use axum::{
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Mensa {
@@ -44,10 +41,6 @@ pub struct MealVariation {
 }
 
 pub const DB_FILENAME: &str = "meals.sqlite";
-
-pub struct AppState {
-    pub data: Mutex<BTreeMap<u8, String>>,
-}
 
 // API Response type
 pub struct ResponseError {

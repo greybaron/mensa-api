@@ -1,9 +1,9 @@
 use anyhow::Result;
 use chrono::NaiveDate;
 use rusqlite::{params, Connection};
-use std::collections::BTreeMap;
 
 use crate::{
+    constants::MENSEN_MAP,
     stuwe_request_funcs::build_date_string,
     types::{MealGroup, DB_FILENAME},
 };
@@ -34,14 +34,14 @@ pub fn check_or_create_db_tables() -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub fn init_mensa_id_db(mensen: &BTreeMap<u8, String>) -> rusqlite::Result<()> {
+pub fn init_mensa_id_db() -> rusqlite::Result<()> {
     let conn = Connection::open(DB_FILENAME)?;
     let mut stmt = conn.prepare_cached(
         "replace into mensen (mensa_id, mensa_name)
             values (?1, ?2)",
     )?;
 
-    for (id, name) in mensen.iter() {
+    for (id, name) in MENSEN_MAP.get().unwrap() {
         stmt.execute(params![id.to_string(), name])?;
     }
 
@@ -88,11 +88,11 @@ pub async fn get_jsonmeals_from_db(date: &str, mensa: u8) -> rusqlite::Result<Op
     Ok(rows.next().unwrap().map(|row| row.get(0).unwrap()))
 }
 
-pub fn mensa_name_get_id_db(mensa_name: &str) -> rusqlite::Result<Option<u8>> {
-    let conn = Connection::open(DB_FILENAME)?;
-    let mut stmt = conn.prepare_cached("SELECT (mensa_id) FROM mensen WHERE mensa_name = ?1")?;
+// pub fn mensa_name_get_id_db(mensa_name: &str) -> rusqlite::Result<Option<u8>> {
+//     let conn = Connection::open(DB_FILENAME)?;
+//     let mut stmt = conn.prepare_cached("SELECT (mensa_id) FROM mensen WHERE mensa_name = ?1")?;
 
-    let mut id_iter = stmt.query_map([mensa_name], |row| row.get(0))?;
+//     let mut id_iter = stmt.query_map([mensa_name], |row| row.get(0))?;
 
-    Ok(id_iter.next().map(|row| row.unwrap()))
-}
+//     Ok(id_iter.next().map(|row| row.unwrap()))
+// }

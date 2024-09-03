@@ -1,16 +1,12 @@
-use std::sync::Arc;
-
-use axum::{
-    extract::{Query, State},
-    Json,
-};
+use axum::{extract::Query, Json};
 use chrono::NaiveDate;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    constants::MENSEN_MAP,
     db_operations::get_meals_from_db,
-    types::{AppState, MealGroup, Mensa, ResponseError},
+    types::{MealGroup, Mensa, ResponseError},
 };
 // use anyhow::Result;
 
@@ -19,10 +15,10 @@ struct UserResponse {
     test: String,
 }
 
-pub async fn get_mensa_list(State(state): State<Arc<AppState>>) -> Json<Vec<Mensa>> {
+pub async fn get_mensa_list() -> Json<Vec<Mensa>> {
     let mut mensa_list: Vec<Mensa> = Vec::new();
 
-    for (id, name) in state.data.lock().await.iter() {
+    for (id, name) in MENSEN_MAP.get().unwrap() {
         mensa_list.push(Mensa {
             id: *id,
             name: name.clone(),
@@ -39,7 +35,6 @@ pub struct MealsQuery {
 }
 
 pub async fn get_day_at_mensa(
-    State(state): State<Arc<AppState>>,
     params: Query<MealsQuery>,
 ) -> Result<Json<Vec<MealGroup>>, ResponseError> {
     let date = NaiveDate::parse_from_str(&params.date, "%Y-%m-%d");
@@ -49,7 +44,7 @@ pub async fn get_day_at_mensa(
             status_code: StatusCode::BAD_REQUEST,
         }),
         Ok(date) => {
-            if state.data.lock().await.get(&params.mensa).is_none() {
+            if MENSEN_MAP.get().unwrap().get(&params.mensa).is_none() {
                 return Err(ResponseError {
                     message: "Mensa not found".to_string(),
                     status_code: StatusCode::NOT_FOUND,
