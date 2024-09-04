@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::{
     constants::{OPENMENSA_ALL_MENSEN, OPENMENSA_LIVE_MENSEN},
-    types::{Mensa, ResponseError},
+    types::Mensa,
 };
 
 #[derive(Deserialize)]
