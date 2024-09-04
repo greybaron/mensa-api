@@ -7,15 +7,15 @@ use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mensa {
-    pub id: u8,
+    pub id: u32,
     pub name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DataForMensaForDay {
-    pub mensa_id: u8,
+    pub mensa_id: u32,
     pub meal_groups: Vec<MealGroup>,
 }
 

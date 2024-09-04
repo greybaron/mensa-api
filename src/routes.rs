@@ -2,7 +2,7 @@ use axum::{response::IntoResponse, routing::get, Router};
 use http::{header::CONTENT_TYPE, Method};
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::services;
+use crate::{openmensa_funcs, services};
 
 pub async fn app() -> Router {
     let cors = CorsLayer::new()
@@ -15,6 +15,7 @@ pub async fn app() -> Router {
     Router::new()
         .route("/", get(|| async { "API is reachable".into_response() }))
         .route("/mensalist", get(services::get_mensa_list))
+        .route("/openmensalist", get(openmensa_funcs::get_openmensa_list))
         .route("/get_day_at_mensa", get(services::get_day_at_mensa))
         .layer(cors)
 }

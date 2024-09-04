@@ -1,10 +1,12 @@
 use constants::{MENSEN_MAP, MENSEN_MAP_INV};
+use openmensa_funcs::init_openmensa_mensen_with_data;
 use std::env;
 use tokio::net::TcpListener;
 
 mod constants;
 mod cronjobs;
 mod db_operations;
+mod openmensa_funcs;
 mod routes;
 mod services;
 mod stuwe_request_funcs;
@@ -30,6 +32,11 @@ async fn main() {
         .unwrap();
 
     init_mensa_id_db().unwrap();
+    if env::var_os("OPENMENSA").is_some() {
+        if let Err(e) = init_openmensa_mensen_with_data().await {
+            log::error!("OpenMensa list fetch failed: {}", e);
+        }
+    }
 
     // always update cache on startup
     match update_cache().await {

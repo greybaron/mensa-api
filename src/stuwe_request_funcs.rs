@@ -39,7 +39,7 @@ use crate::types::{DataForMensaForDay, MealGroup, MealVariation, SingleMeal};
 //     println!("{} in {:.2?}", its * strings.len(), now.elapsed());
 // }
 
-pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u8>> {
+pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u32>> {
     let mut today_changed_mensen_ids = vec![];
 
     let date_string = build_date_string(day);
@@ -273,7 +273,7 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
     Ok(v_meal_groups)
 }
 
-pub async fn get_mensen() -> Result<BTreeMap<u8, String>> {
+pub async fn get_mensen() -> Result<BTreeMap<u32, String>> {
     let mut mensen = BTreeMap::new();
 
     // pass invalid date to get empty page (dont need actual data) with all mensa locations
@@ -283,7 +283,7 @@ pub async fn get_mensen() -> Result<BTreeMap<u8, String>> {
     let mensa_item_sel = Selector::parse("span").unwrap();
     for list_item in document.select(&mensa_list_sel) {
         if let Some(mensa_id) = list_item.value().attr("data-location") {
-            if let Ok(mensa_id) = mensa_id.parse::<u8>() {
+            if let Ok(mensa_id) = mensa_id.parse::<u32>() {
                 if let Some(mensa_name) = list_item.select(&mensa_item_sel).next() {
                     mensen.insert(mensa_id, mensa_name.inner_html());
                 }
@@ -312,6 +312,6 @@ pub async fn get_mensen() -> Result<BTreeMap<u8, String>> {
     }
 }
 
-pub fn invert_map(map: &BTreeMap<u8, String>) -> BTreeMap<String, u8> {
+pub fn invert_map(map: &BTreeMap<u32, String>) -> BTreeMap<String, u32> {
     map.iter().map(|(k, v)| (v.clone(), *k)).collect()
 }

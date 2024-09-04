@@ -30,7 +30,7 @@ pub async fn get_mensa_list() -> Json<Vec<Mensa>> {
 
 #[derive(Deserialize, Debug)]
 pub struct MealsQuery {
-    pub mensa: u8,
+    pub mensa: u32,
     pub date: String,
 }
 

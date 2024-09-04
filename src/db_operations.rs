@@ -48,7 +48,7 @@ pub fn init_mensa_id_db() -> rusqlite::Result<()> {
     Ok(())
 }
 
-pub async fn save_meal_to_db(date: &str, mensa: u8, json_text: &str) -> rusqlite::Result<()> {
+pub async fn save_meal_to_db(date: &str, mensa: u32, json_text: &str) -> rusqlite::Result<()> {
     let conn = Connection::open(DB_FILENAME)?;
     conn.execute(
         "delete from meals where mensa_id = ?1 and date = ?2",
@@ -65,7 +65,7 @@ pub async fn save_meal_to_db(date: &str, mensa: u8, json_text: &str) -> rusqlite
     Ok(())
 }
 
-pub async fn get_meals_from_db(requested_date: NaiveDate, mensa: u8) -> Result<Vec<MealGroup>> {
+pub async fn get_meals_from_db(requested_date: NaiveDate, mensa: u32) -> Result<Vec<MealGroup>> {
     let date_str = build_date_string(requested_date);
     let json_text = get_jsonmeals_from_db(&date_str, mensa).await?;
     if let Some(json_text) = json_text {
@@ -79,7 +79,7 @@ async fn json_to_meal(json_text: &str) -> Result<Vec<MealGroup>> {
     Ok(serde_json::from_str(json_text)?)
 }
 
-pub async fn get_jsonmeals_from_db(date: &str, mensa: u8) -> rusqlite::Result<Option<String>> {
+pub async fn get_jsonmeals_from_db(date: &str, mensa: u32) -> rusqlite::Result<Option<String>> {
     let conn = Connection::open(DB_FILENAME)?;
     let mut stmt =
         conn.prepare_cached("select json_text from meals where (mensa_id, date) = (?1, ?2)")?;
