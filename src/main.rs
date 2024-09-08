@@ -12,8 +12,8 @@ mod services;
 mod stuwe_request_funcs;
 mod types;
 use cronjobs::{start_mensacache_and_campusdual_job, update_cache};
-use db_operations::{check_or_create_db_tables, init_mensa_id_db};
-use stuwe_request_funcs::{get_mensen, invert_map};
+use db_operations::{check_or_create_db_tables, get_mensen_from_db};
+use stuwe_request_funcs::invert_map;
 
 #[tokio::main]
 async fn main() {
@@ -26,12 +26,15 @@ async fn main() {
     //// DB setup
     check_or_create_db_tables().unwrap();
 
-    MENSEN_MAP.set(get_mensen().await.unwrap()).unwrap();
-    MENSEN_MAP_INV
-        .set(invert_map(MENSEN_MAP.get().unwrap()))
-        .unwrap();
+    {
+        let mensen = get_mensen_from_db().await.unwrap();
+        *MENSEN_MAP_INV.write().unwrap() = invert_map(&mensen);
+        *MENSEN_MAP.write().unwrap() = mensen;
+    }
 
-    init_mensa_id_db().unwrap();
+    // stuwe_request_funcs::_run_benchmark().await;
+    // return;
+
     if env::var_os("OPENMENSA").is_some() {
         if let Err(e) = init_openmensa_mensen_with_data().await {
             log::error!("OpenMensa list fetch failed: {}", e);

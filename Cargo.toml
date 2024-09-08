@@ -1,6 +1,6 @@
 [package]
 name = "mensa-api"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -23,6 +23,8 @@ log = "0.4.22"
 lazy_static = "1.5.0"
 reqwest-middleware = "0.3.3"
 reqwest-retry = "0.6.1"
+left-right = "0.11.5"
+evmap = "10.0.2"
 
 [profile.release]
 strip = true

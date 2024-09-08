@@ -3,7 +3,10 @@ use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Weekday};
 use tokio::task::JoinSet;
 use tokio_cron_scheduler::{Job, JobScheduler};
 
-use crate::stuwe_request_funcs::parse_and_save_meals;
+use crate::{
+    constants::{MENSEN_MAP, MENSEN_MAP_INV},
+    stuwe_request_funcs::{invert_map, parse_and_save_meals},
+};
 
 pub async fn start_mensacache_and_campusdual_job() {
     let sched = JobScheduler::new().await.unwrap();
@@ -40,6 +43,8 @@ pub async fn update_cache() -> Result<()> {
     let mut set = JoinSet::new();
     let mut mensen_today_changed = Vec::new();
 
+    let mensen_map_inv_before = MENSEN_MAP_INV.read().unwrap().clone();
+
     for day in &days {
         set.spawn(parse_and_save_meals(*day));
     }
@@ -53,6 +58,11 @@ pub async fn update_cache() -> Result<()> {
                 log::warn!("Error in cache execution: {}", e);
             }
         }
+    }
+
+    let mensen_map_inv_now = MENSEN_MAP_INV.read().unwrap();
+    if mensen_map_inv_before != *mensen_map_inv_now {
+        *MENSEN_MAP.write().unwrap() = invert_map(&mensen_map_inv_now);
     }
 
     log::info!(

@@ -18,7 +18,7 @@ struct UserResponse {
 pub async fn get_mensa_list() -> Json<Vec<Mensa>> {
     let mut mensa_list: Vec<Mensa> = Vec::new();
 
-    for (id, name) in MENSEN_MAP.get().unwrap() {
+    for (id, name) in MENSEN_MAP.read().unwrap().iter() {
         mensa_list.push(Mensa {
             id: *id,
             name: name.clone(),
@@ -44,7 +44,7 @@ pub async fn get_day_at_mensa(
             status_code: StatusCode::BAD_REQUEST,
         }),
         Ok(date) => {
-            if MENSEN_MAP.get().unwrap().get(&params.mensa).is_none() {
+            if MENSEN_MAP.read().unwrap().get(&params.mensa).is_none() {
                 return Err(ResponseError {
                     message: "Mensa not found".to_string(),
                     status_code: StatusCode::NOT_FOUND,

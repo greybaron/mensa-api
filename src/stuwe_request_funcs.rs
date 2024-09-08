@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::{Datelike, NaiveDate};
 use lazy_static::lazy_static;
 use scraper::{Element, ElementRef, Html, Selector};
@@ -6,38 +6,39 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use crate::constants::MENSEN_MAP_INV;
-use crate::db_operations::{get_jsonmeals_from_db, save_meal_to_db};
+use crate::db_operations::{add_mensa_id_db, get_jsonmeals_from_db, save_meal_to_db};
 use crate::types::{DataForMensaForDay, MealGroup, MealVariation, SingleMeal};
 
-// pub async fn run_benchmark() {
-//     println!("downloading htmls");
-//     let today = chrono::Local::now();
+pub async fn _run_benchmark() {
+    println!("downloading htmls");
+    let today = chrono::Local::now();
 
-//     let mut strings: Vec<String> = Vec::new();
-//     for i in 0..7 {
-//         let day: chrono::DateTime<chrono::FixedOffset> = (today + chrono::Duration::days(i)).into();
+    let mut strings: Vec<String> = Vec::new();
+    for i in 0..7 {
+        let day: chrono::DateTime<chrono::FixedOffset> = (today + chrono::Duration::days(i)).into();
 
-//         if ![chrono::Weekday::Sat, chrono::Weekday::Sun].contains(&day.weekday()) {
-//             strings.push(
-//                 reqwest_get_html_text(&build_date_string(day.date_naive()))
-//                     .await
-//                     .unwrap(),
-//             );
-//         }
-//     }
-//     println!("got {} htmls", strings.len());
-//     let now = Instant::now();
-//     let its = 100;
+        if ![chrono::Weekday::Sat, chrono::Weekday::Sun].contains(&day.weekday()) {
+            strings.push(
+                reqwest_get_html_text(&build_date_string(day.date_naive()))
+                    .await
+                    .unwrap(),
+            );
+        }
+    }
 
-//     // ST
-//     for _ in 0..100 {
-//         for string in &strings {
-//             extract_data_from_html(string).await.unwrap();
-//         }
-//     }
+    println!("got {} htmls", strings.len());
+    let now = Instant::now();
+    let its = 100;
 
-//     println!("{} in {:.2?}", its * strings.len(), now.elapsed());
-// }
+    // ST
+    for _ in 0..its {
+        for string in &strings {
+            extract_data_from_html(string).await.unwrap();
+        }
+    }
+
+    println!("{} in {:.2?}", its * strings.len(), now.elapsed());
+}
 
 pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u32>> {
     let mut today_changed_mensen_ids = vec![];
@@ -100,12 +101,15 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDa
     let mut all_data_for_day = vec![];
 
     let now = Instant::now();
+
     let document = Html::parse_fragment(html_text);
 
     lazy_static! {
         static ref DATE_BUTTON_GROUPSEL: Selector =
             Selector::parse(r#"button.date-button.is--active"#).unwrap();
-        static ref CONTAINER_SEL: Selector = Selector::parse(r#"div.meal-overview"#).unwrap();
+        // static ref CONTAINER_SEL: Selector = Selector::parse(r#"div.meal-overview"#).unwrap();
+        static ref TITLE_SEL: Selector = Selector::parse("h3").unwrap();
+
     };
 
     document
@@ -113,19 +117,32 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDa
         .next()
         .context("Recv. StuWe site is invalid (has no date)")?;
 
-    let meal_containers = document.select(&CONTAINER_SEL);
+    let title_elements = document.select(&TITLE_SEL);
 
-    for meal_container in meal_containers {
-        if let Some(mensa_title_element) = meal_container.prev_sibling_element() {
-            let mensa_title = mensa_title_element.inner_html();
-            let meals = extract_mealgroup_from_htmlcontainer(meal_container)?;
-            if let Some(mensa_id) = MENSEN_MAP_INV.get().unwrap().get(&mensa_title) {
-                all_data_for_day.push(DataForMensaForDay {
-                    mensa_id: *mensa_id,
-                    meal_groups: meals,
-                });
-            } else {
-                log::warn!("Mensa not found in DB: {}", mensa_title);
+    for mensa_name in title_elements {
+        let mensa_title = mensa_name.inner_html();
+        let meals = extract_mealgroup_from_htmlcontainer(
+            mensa_name
+                .next_sibling_element()
+                .context("h3 without meal container")?,
+        )?;
+        let mensen = MENSEN_MAP_INV.read().unwrap();
+        if let Some(mensa_id) = mensen.get(&mensa_title) {
+            all_data_for_day.push(DataForMensaForDay {
+                mensa_id: *mensa_id,
+                meal_groups: meals,
+            });
+        } else {
+            // drop the readguard to not deadlock write (if let Some() only drops after else)
+            drop(mensen);
+            log::warn!("Adding new Mensa to db: {}", mensa_title);
+
+            if let Ok(mensa_id) = extract_mensaid(&document, &mensa_title) {
+                add_mensa_id_db(mensa_id, &mensa_title).unwrap();
+                MENSEN_MAP_INV
+                    .write()
+                    .unwrap()
+                    .insert(mensa_title, mensa_id);
             }
         }
     }
@@ -273,45 +290,104 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
     Ok(v_meal_groups)
 }
 
-pub async fn get_mensen() -> Result<BTreeMap<u32, String>> {
-    let mut mensen = BTreeMap::new();
+// pub async fn get_mensen() -> Result<BTreeMap<u32, String>> {
+//     let mut mensen = BTreeMap::new();
+
+//     // pass invalid date to get empty page (dont need actual data) with all mensa locations
+//     let html_text = reqwest_get_html_text("a").await.unwrap_or_default();
+//     let document = Html::parse_fragment(&html_text);
+//     let mensa_list_sel = Selector::parse("#locations>li").unwrap();
+//     let mensa_item_sel = Selector::parse("span").unwrap();
+//     for list_item in document.select(&mensa_list_sel) {
+//         if let Some(mensa_id) = list_item.value().attr("data-location") {
+//             if let Ok(mensa_id) = mensa_id.parse::<u32>() {
+//                 if let Some(mensa_name) = list_item.select(&mensa_item_sel).next() {
+//                     mensen.insert(mensa_id, mensa_name.inner_html());
+//                 }
+//             }
+//         }
+//     }
+
+//     if mensen.is_empty() {
+//         log::warn!("Failed to load mensen from stuwe, falling back");
+//         Ok(BTreeMap::from(
+//             [
+//                 (153, "Cafeteria Dittrichring"),
+//                 (127, "Mensaria am Botanischen Garten"),
+//                 (118, "Mensa Academica"),
+//                 (106, "Mensa am Park"),
+//                 (115, "Mensa am Elsterbecken"),
+//                 (162, "Mensa am Medizincampus"),
+//                 (111, "Mensa Peterssteinweg"),
+//                 (140, "Mensa Schönauer Straße"),
+//                 (170, "Mensa An den Tierklinik"),
+//             ]
+//             .map(|(id, name)| (id, name.to_string())),
+//         ))
+//     } else {
+//         Ok(mensen)
+//     }
+// }
+
+fn extract_mensaid(document: &Html, mensa_title: &str) -> Result<u32> {
+    // let mut mensen = BTreeMap::new();
 
     // pass invalid date to get empty page (dont need actual data) with all mensa locations
-    let html_text = reqwest_get_html_text("a").await.unwrap_or_default();
-    let document = Html::parse_fragment(&html_text);
-    let mensa_list_sel = Selector::parse("#locations>li").unwrap();
-    let mensa_item_sel = Selector::parse("span").unwrap();
-    for list_item in document.select(&mensa_list_sel) {
-        if let Some(mensa_id) = list_item.value().attr("data-location") {
+    // let html_text = reqwest_get_html_text("a").await.unwrap_or_default();
+    // let document = Html::parse_fragment(&html_text);
+    lazy_static! {
+        static ref MENSA_LIST_SEL: Selector = Selector::parse("#locations>li").unwrap();
+        static ref MENSA_ITEM_SEL: Selector = Selector::parse("span").unwrap();
+    };
+
+    let mensa_li = document
+        .select(&MENSA_LIST_SEL)
+        .find(|li| li.first_element_child().unwrap().inner_html() == mensa_title);
+    if let Some(mensa_li) = mensa_li {
+        if let Some(mensa_id) = mensa_li.value().attr("data-location") {
             if let Ok(mensa_id) = mensa_id.parse::<u32>() {
-                if let Some(mensa_name) = list_item.select(&mensa_item_sel).next() {
-                    mensen.insert(mensa_id, mensa_name.inner_html());
-                }
+                return Ok(mensa_id);
             }
         }
     }
 
-    if mensen.is_empty() {
-        log::warn!("Failed to load mensen from stuwe, falling back");
-        Ok(BTreeMap::from(
-            [
-                (153, "Cafeteria Dittrichring"),
-                (127, "Mensaria am Botanischen Garten"),
-                (118, "Mensa Academica"),
-                (106, "Mensa am Park"),
-                (115, "Mensa am Elsterbecken"),
-                (162, "Mensa am Medizincampus"),
-                (111, "Mensa Peterssteinweg"),
-                (140, "Mensa Schönauer Straße"),
-                (170, "Mensa An den Tierklinik"),
-            ]
-            .map(|(id, name)| (id, name.to_string())),
-        ))
-    } else {
-        Ok(mensen)
-    }
+    // for list_item in document.select(&MENSA_LIST_SEL) {
+    //     if let Some(mensa_id) = list_item.value().attr("data-location") {
+    //         if let Ok(mensa_id) = mensa_id.parse::<u32>() {
+    //             if let Some(mensa_name) = list_item.select(&MENSA_ITEM_SEL).next() {
+    //                 mensen.insert(mensa_id, mensa_name.inner_html());
+    //             }
+    //         }
+    //     }
+    // }
+
+    Err(anyhow!("Failed to extract mensa id"))
+
+    // if mensen.is_empty() {
+    //     log::warn!("Failed to load mensen from stuwe, falling back");
+    //     Ok(BTreeMap::from(
+    //         [
+    //             (153, "Cafeteria Dittrichring"),
+    //             (127, "Mensaria am Botanischen Garten"),
+    //             (118, "Mensa Academica"),
+    //             (106, "Mensa am Park"),
+    //             (115, "Mensa am Elsterbecken"),
+    //             (162, "Mensa am Medizincampus"),
+    //             (111, "Mensa Peterssteinweg"),
+    //             (140, "Mensa Schönauer Straße"),
+    //             (170, "Mensa An den Tierklinik"),
+    //         ]
+    //         .map(|(id, name)| (id, name.to_string())),
+    //     ))
+    // } else {
+    //     Ok(mensen)
+    // }
 }
 
-pub fn invert_map(map: &BTreeMap<u32, String>) -> BTreeMap<String, u32> {
-    map.iter().map(|(k, v)| (v.clone(), *k)).collect()
+pub fn invert_map<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<V, K>
+where
+    K: Clone + Ord,
+    V: Clone + Ord,
+{
+    map.iter().map(|(k, v)| (v.clone(), k.clone())).collect()
 }
