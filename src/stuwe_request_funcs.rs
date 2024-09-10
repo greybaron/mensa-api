@@ -126,25 +126,32 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDa
                 .next_sibling_element()
                 .context("h3 without meal container")?,
         )?;
-        let mensen = MENSEN_MAP_INV.read().unwrap();
-        if let Some(mensa_id) = mensen.get(&mensa_title) {
-            all_data_for_day.push(DataForMensaForDay {
-                mensa_id: *mensa_id,
-                meal_groups: meals,
-            });
-        } else {
-            // drop the readguard to not deadlock write (if let Some() only drops after else)
-            drop(mensen);
-            log::warn!("Adding new Mensa to db: {}", mensa_title);
 
-            if let Ok(mensa_id) = extract_mensaid(&document, &mensa_title) {
-                add_mensa_id_db(mensa_id, &mensa_title).unwrap();
-                MENSEN_MAP_INV
-                    .write()
-                    .unwrap()
-                    .insert(mensa_title, mensa_id);
-            }
-        }
+        let mensen_map_inv_r = MENSEN_MAP_INV.read().unwrap();
+        let mensa_id = mensen_map_inv_r.get(&mensa_title).copied().unwrap_or({
+            // drop here, otherwise drop would occur after the write lock (≙ dead lock)
+            drop(mensen_map_inv_r);
+            let extr_id = extract_mensaid(&document, &mensa_title)?;
+
+            if MENSEN_MAP_INV
+                .write()
+                .unwrap()
+                .insert(mensa_title.clone(), extr_id)
+                // race conditions between writers and readers can cause two readers to think
+                // the value needs to be added (only writes lock exclusively)
+                .is_none()
+            {
+                log::warn!("Adding new Mensa to db: {}", mensa_title);
+                add_mensa_id_db(extr_id, &mensa_title)?;
+            };
+
+            extr_id
+        });
+
+        all_data_for_day.push(DataForMensaForDay {
+            mensa_id,
+            meal_groups: meals,
+        });
     }
 
     log::info!("HTML → Data: {:.2?}", now.elapsed());
@@ -290,51 +297,7 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
     Ok(v_meal_groups)
 }
 
-// pub async fn get_mensen() -> Result<BTreeMap<u32, String>> {
-//     let mut mensen = BTreeMap::new();
-
-//     // pass invalid date to get empty page (dont need actual data) with all mensa locations
-//     let html_text = reqwest_get_html_text("a").await.unwrap_or_default();
-//     let document = Html::parse_fragment(&html_text);
-//     let mensa_list_sel = Selector::parse("#locations>li").unwrap();
-//     let mensa_item_sel = Selector::parse("span").unwrap();
-//     for list_item in document.select(&mensa_list_sel) {
-//         if let Some(mensa_id) = list_item.value().attr("data-location") {
-//             if let Ok(mensa_id) = mensa_id.parse::<u32>() {
-//                 if let Some(mensa_name) = list_item.select(&mensa_item_sel).next() {
-//                     mensen.insert(mensa_id, mensa_name.inner_html());
-//                 }
-//             }
-//         }
-//     }
-
-//     if mensen.is_empty() {
-//         log::warn!("Failed to load mensen from stuwe, falling back");
-//         Ok(BTreeMap::from(
-//             [
-//                 (153, "Cafeteria Dittrichring"),
-//                 (127, "Mensaria am Botanischen Garten"),
-//                 (118, "Mensa Academica"),
-//                 (106, "Mensa am Park"),
-//                 (115, "Mensa am Elsterbecken"),
-//                 (162, "Mensa am Medizincampus"),
-//                 (111, "Mensa Peterssteinweg"),
-//                 (140, "Mensa Schönauer Straße"),
-//                 (170, "Mensa An den Tierklinik"),
-//             ]
-//             .map(|(id, name)| (id, name.to_string())),
-//         ))
-//     } else {
-//         Ok(mensen)
-//     }
-// }
-
 fn extract_mensaid(document: &Html, mensa_title: &str) -> Result<u32> {
-    // let mut mensen = BTreeMap::new();
-
-    // pass invalid date to get empty page (dont need actual data) with all mensa locations
-    // let html_text = reqwest_get_html_text("a").await.unwrap_or_default();
-    // let document = Html::parse_fragment(&html_text);
     lazy_static! {
         static ref MENSA_LIST_SEL: Selector = Selector::parse("#locations>li").unwrap();
         static ref MENSA_ITEM_SEL: Selector = Selector::parse("span").unwrap();
@@ -351,37 +314,7 @@ fn extract_mensaid(document: &Html, mensa_title: &str) -> Result<u32> {
         }
     }
 
-    // for list_item in document.select(&MENSA_LIST_SEL) {
-    //     if let Some(mensa_id) = list_item.value().attr("data-location") {
-    //         if let Ok(mensa_id) = mensa_id.parse::<u32>() {
-    //             if let Some(mensa_name) = list_item.select(&MENSA_ITEM_SEL).next() {
-    //                 mensen.insert(mensa_id, mensa_name.inner_html());
-    //             }
-    //         }
-    //     }
-    // }
-
     Err(anyhow!("Failed to extract mensa id"))
-
-    // if mensen.is_empty() {
-    //     log::warn!("Failed to load mensen from stuwe, falling back");
-    //     Ok(BTreeMap::from(
-    //         [
-    //             (153, "Cafeteria Dittrichring"),
-    //             (127, "Mensaria am Botanischen Garten"),
-    //             (118, "Mensa Academica"),
-    //             (106, "Mensa am Park"),
-    //             (115, "Mensa am Elsterbecken"),
-    //             (162, "Mensa am Medizincampus"),
-    //             (111, "Mensa Peterssteinweg"),
-    //             (140, "Mensa Schönauer Straße"),
-    //             (170, "Mensa An den Tierklinik"),
-    //         ]
-    //         .map(|(id, name)| (id, name.to_string())),
-    //     ))
-    // } else {
-    //     Ok(mensen)
-    // }
 }
 
 pub fn invert_map<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<V, K>
