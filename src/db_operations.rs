@@ -1,18 +1,16 @@
-use std::collections::BTreeMap;
-
 use anyhow::Result;
 use chrono::NaiveDate;
 use rusqlite::{params, Connection};
+use std::collections::BTreeMap;
 
-use crate::{
-    stuwe_request_funcs::build_date_string,
-    types::{MealGroup, DB_FILENAME},
-};
+use crate::{stuwe_request_funcs::build_date_string, types::MealGroup};
+
+const DB_FILENAME: &str = "meals.sqlite";
 
 pub fn check_or_create_db_tables() -> rusqlite::Result<()> {
     let conn = Connection::open(DB_FILENAME)?;
 
-    // table of all mensa names
+    // table of all canteens
     conn.prepare(
         "create table if not exists mensen (
             mensa_id integer primary key,
@@ -35,39 +33,22 @@ pub fn check_or_create_db_tables() -> rusqlite::Result<()> {
     Ok(())
 }
 
-// pub async fn init_mensa_id_db() -> rusqlite::Result<()> {
-//     let conn = Connection::open(DB_FILENAME)?;
-//     let mut stmt = conn.prepare_cached(
-//         "replace into mensen (mensa_id, mensa_name)
-//             values (?1, ?2)",
-//     )?;
-
-//     for (id, name) in MENSEN_MAP.get().unwrap().read().await.iter() {
-//         stmt.execute(params![id.to_string(), name])?;
-//     }
-
-//     Ok(())
-// }
-pub fn add_mensa_id_db(id: u32, name: &str) -> rusqlite::Result<()> {
+pub fn add_canteen_id_db(id: u32, name: &str) -> rusqlite::Result<()> {
     let conn = Connection::open(DB_FILENAME)?;
     let mut stmt = conn.prepare_cached(
         "replace into mensen (mensa_id, mensa_name)
             values (?1, ?2)",
     )?;
-    stmt.execute(params![id.to_string(), name])?;
-
-    // for (id, name) in MENSEN_MAP.get().unwrap().read().await.iter() {
-    //     stmt.execute(params![id.to_string(), name])?;
-    // }
+    stmt.execute(params![id, name])?;
 
     Ok(())
 }
 
-pub async fn save_meal_to_db(date: &str, mensa: u32, json_text: &str) -> rusqlite::Result<()> {
+pub async fn save_meal_to_db(date: &str, canteen_id: u32, json_text: &str) -> rusqlite::Result<()> {
     let conn = Connection::open(DB_FILENAME)?;
     conn.execute(
         "delete from meals where mensa_id = ?1 and date = ?2",
-        [mensa.to_string(), date.to_string()],
+        params![canteen_id, date],
     )?;
 
     let mut stmt = conn.prepare_cached(
@@ -75,31 +56,47 @@ pub async fn save_meal_to_db(date: &str, mensa: u32, json_text: &str) -> rusqlit
             values (?1, ?2, ?3)",
     )?;
 
-    stmt.execute(params![mensa, date, json_text])?;
+    stmt.execute(params![canteen_id, date, json_text])?;
 
     Ok(())
 }
 
-pub async fn get_mensen_from_db() -> Result<BTreeMap<u32, String>> {
+pub async fn get_canteens_from_db() -> Result<BTreeMap<u32, String>> {
     let conn = Connection::open(DB_FILENAME)?;
     let mut stmt = conn.prepare("select mensa_id, mensa_name from mensen")?;
 
-    let mensa_iter = stmt.query_map([], |row| {
+    let canteen_iter = stmt.query_map([], |row| {
         Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
     })?;
 
-    let mut mensen = BTreeMap::new();
-    for mensa in mensa_iter {
-        let (mensa_id, mensa_name) = mensa?;
-        mensen.insert(mensa_id, mensa_name);
+    let mut canteens = BTreeMap::new();
+    for canteen in canteen_iter {
+        let (canteen_id, canteen_name) = canteen?;
+        canteens.insert(canteen_id, canteen_name);
     }
 
-    Ok(mensen)
+    Ok(canteens)
 }
 
-pub async fn get_meals_from_db(requested_date: NaiveDate, mensa: u32) -> Result<Vec<MealGroup>> {
+pub fn list_available_days_db(canteen_id: u32) -> rusqlite::Result<Vec<String>> {
+    let conn = Connection::open(DB_FILENAME)?;
+    let mut stmt = conn.prepare_cached("select date from meals where mensa_id = ?1")?;
+    let mut rows = stmt.query(params![canteen_id])?;
+
+    let mut dates = vec![];
+    while let Some(row) = rows.next()? {
+        dates.push(row.get(0)?);
+    }
+
+    Ok(dates)
+}
+
+pub async fn get_meals_from_db(
+    canteen_id: u32,
+    requested_date: NaiveDate,
+) -> Result<Vec<MealGroup>> {
     let date_str = build_date_string(requested_date);
-    let json_text = get_jsonmeals_from_db(&date_str, mensa).await?;
+    let json_text = get_jsonmeals_from_db(&date_str, canteen_id).await?;
     if let Some(json_text) = json_text {
         json_to_meal(&json_text).await
     } else {
@@ -111,11 +108,14 @@ async fn json_to_meal(json_text: &str) -> Result<Vec<MealGroup>> {
     Ok(serde_json::from_str(json_text)?)
 }
 
-pub async fn get_jsonmeals_from_db(date: &str, mensa: u32) -> rusqlite::Result<Option<String>> {
+pub async fn get_jsonmeals_from_db(
+    date: &str,
+    canteen_id: u32,
+) -> rusqlite::Result<Option<String>> {
     let conn = Connection::open(DB_FILENAME)?;
     let mut stmt =
         conn.prepare_cached("select json_text from meals where (mensa_id, date) = (?1, ?2)")?;
-    let mut rows = stmt.query([&mensa.to_string(), date])?;
+    let mut rows = stmt.query(params![canteen_id, date])?;
 
     Ok(rows.next().unwrap().map(|row| row.get(0).unwrap()))
 }

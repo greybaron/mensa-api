@@ -5,9 +5,9 @@ use scraper::{Element, ElementRef, Html, Selector};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use crate::constants::MENSEN_MAP_INV;
-use crate::db_operations::{add_mensa_id_db, get_jsonmeals_from_db, save_meal_to_db};
-use crate::types::{DataForMensaForDay, MealGroup, MealVariation, SingleMeal};
+use crate::constants::CANTEEN_MAP_INV;
+use crate::db_operations::{add_canteen_id_db, get_jsonmeals_from_db, save_meal_to_db};
+use crate::types::{CanteenMealsDay, MealGroup, MealVariation, SingleMeal};
 
 pub async fn _run_benchmark() {
     println!("downloading htmls");
@@ -41,40 +41,42 @@ pub async fn _run_benchmark() {
 }
 
 pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u32>> {
-    let mut today_changed_mensen_ids = vec![];
+    let mut today_changed_canteen_ids = vec![];
 
     let date_string = build_date_string(day);
 
     // getting data from server
     let downloaded_html = reqwest_get_html_text(&date_string).await?;
 
-    let all_data_for_day = extract_data_from_html(&downloaded_html).await?;
+    let all_canteen_singleday = extract_data_from_html(&downloaded_html).await?;
     // serialize downloaded meals
-    for mensa_data_for_day in all_data_for_day {
-        let downloaded_json_text = serde_json::to_string(&mensa_data_for_day.meal_groups).unwrap();
-        let db_json_text = get_jsonmeals_from_db(&date_string, mensa_data_for_day.mensa_id).await?;
+    for canteen_meals_singleday in all_canteen_singleday {
+        let downloaded_json_text =
+            serde_json::to_string(&canteen_meals_singleday.meal_groups).unwrap();
+        let db_json_text =
+            get_jsonmeals_from_db(&date_string, canteen_meals_singleday.canteen_id).await?;
 
         // if downloaded meals are different from cached meals, update cache
         if db_json_text.is_none() || downloaded_json_text != db_json_text.unwrap() {
             log::info!(
-                "updating cache: Mensa={} Date={}",
-                mensa_data_for_day.mensa_id,
+                "updating cache: Canteen={} Date={}",
+                canteen_meals_singleday.canteen_id,
                 date_string
             );
             save_meal_to_db(
                 &date_string,
-                mensa_data_for_day.mensa_id,
+                canteen_meals_singleday.canteen_id,
                 &downloaded_json_text,
             )
             .await?;
 
             if day.weekday() == chrono::Local::now().weekday() {
-                today_changed_mensen_ids.push(mensa_data_for_day.mensa_id);
+                today_changed_canteen_ids.push(canteen_meals_singleday.canteen_id);
             }
         }
     }
 
-    Ok(today_changed_mensen_ids)
+    Ok(today_changed_canteen_ids)
 }
 
 pub fn build_date_string(requested_date: NaiveDate) -> String {
@@ -97,7 +99,7 @@ async fn reqwest_get_html_text(date: &str) -> Result<String> {
     Ok(txt)
 }
 
-async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDay>> {
+async fn extract_data_from_html(html_text: &str) -> Result<Vec<CanteenMealsDay>> {
     let mut all_data_for_day = vec![];
 
     let now = Instant::now();
@@ -107,9 +109,7 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDa
     lazy_static! {
         static ref DATE_BUTTON_GROUPSEL: Selector =
             Selector::parse(r#"button.date-button.is--active"#).unwrap();
-        // static ref CONTAINER_SEL: Selector = Selector::parse(r#"div.meal-overview"#).unwrap();
         static ref TITLE_SEL: Selector = Selector::parse("h3").unwrap();
-
     };
 
     document
@@ -119,37 +119,37 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<DataForMensaForDa
 
     let title_elements = document.select(&TITLE_SEL);
 
-    for mensa_name in title_elements {
-        let mensa_title = mensa_name.inner_html();
+    for canteen_name_el in title_elements {
+        let canteen_name = canteen_name_el.inner_html();
         let meals = extract_mealgroup_from_htmlcontainer(
-            mensa_name
+            canteen_name_el
                 .next_sibling_element()
                 .context("h3 without meal container")?,
         )?;
 
-        let mensen_map_inv_r = MENSEN_MAP_INV.read().unwrap();
-        let mensa_id = mensen_map_inv_r.get(&mensa_title).copied().unwrap_or({
+        let canteen_map_inv_r = CANTEEN_MAP_INV.read().unwrap();
+        let canteen_id = canteen_map_inv_r.get(&canteen_name).copied().unwrap_or({
             // drop here, otherwise drop would occur after the write lock (≙ dead lock)
-            drop(mensen_map_inv_r);
-            let extr_id = extract_mensaid(&document, &mensa_title)?;
+            drop(canteen_map_inv_r);
+            let extr_id = extract_canteenid(&document, &canteen_name)?;
 
-            if MENSEN_MAP_INV
+            if CANTEEN_MAP_INV
                 .write()
                 .unwrap()
-                .insert(mensa_title.clone(), extr_id)
+                .insert(canteen_name.clone(), extr_id)
                 // race conditions between writers and readers can cause two readers to think
                 // the value needs to be added (only writes lock exclusively)
                 .is_none()
             {
-                log::warn!("Adding new Mensa to db: {}", mensa_title);
-                add_mensa_id_db(extr_id, &mensa_title)?;
+                log::warn!("Adding new canteen to db: {}", canteen_name);
+                add_canteen_id_db(extr_id, &canteen_name)?;
             };
 
             extr_id
         });
 
-        all_data_for_day.push(DataForMensaForDay {
-            mensa_id,
+        all_data_for_day.push(CanteenMealsDay {
+            canteen_id,
             meal_groups: meals,
         });
     }
@@ -297,24 +297,23 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
     Ok(v_meal_groups)
 }
 
-fn extract_mensaid(document: &Html, mensa_title: &str) -> Result<u32> {
+fn extract_canteenid(document: &Html, canteen_title: &str) -> Result<u32> {
     lazy_static! {
-        static ref MENSA_LIST_SEL: Selector = Selector::parse("#locations>li").unwrap();
-        static ref MENSA_ITEM_SEL: Selector = Selector::parse("span").unwrap();
+        static ref CANTEEN_LIST_SEL: Selector = Selector::parse("#locations>li").unwrap();
     };
 
-    let mensa_li = document
-        .select(&MENSA_LIST_SEL)
-        .find(|li| li.first_element_child().unwrap().inner_html() == mensa_title);
-    if let Some(mensa_li) = mensa_li {
-        if let Some(mensa_id) = mensa_li.value().attr("data-location") {
-            if let Ok(mensa_id) = mensa_id.parse::<u32>() {
-                return Ok(mensa_id);
+    let canteen_li = document
+        .select(&CANTEEN_LIST_SEL)
+        .find(|li| li.first_element_child().unwrap().inner_html() == canteen_title);
+    if let Some(canteen_li) = canteen_li {
+        if let Some(canteen_id) = canteen_li.value().attr("data-location") {
+            if let Ok(canteen_id) = canteen_id.parse::<u32>() {
+                return Ok(canteen_id);
             }
         }
     }
 
-    Err(anyhow!("Failed to extract mensa id"))
+    Err(anyhow!("Failed to extract canteen id"))
 }
 
 pub fn invert_map<K, V>(map: &BTreeMap<K, V>) -> BTreeMap<V, K>

@@ -1,5 +1,5 @@
-use constants::{MENSEN_MAP, MENSEN_MAP_INV};
-use openmensa_funcs::init_openmensa_mensen_with_data;
+use constants::{CANTEEN_MAP, CANTEEN_MAP_INV};
+use openmensa_funcs::init_openmensa_canteenlist;
 use std::env;
 use tokio::net::TcpListener;
 
@@ -11,8 +11,8 @@ mod routes;
 mod services;
 mod stuwe_request_funcs;
 mod types;
-use cronjobs::{start_mensacache_and_campusdual_job, update_cache};
-use db_operations::{check_or_create_db_tables, get_mensen_from_db};
+use cronjobs::{start_canteen_cache_job, update_cache};
+use db_operations::{check_or_create_db_tables, get_canteens_from_db};
 use stuwe_request_funcs::invert_map;
 
 #[tokio::main]
@@ -27,19 +27,19 @@ async fn main() {
     check_or_create_db_tables().unwrap();
 
     {
-        let mensen = get_mensen_from_db().await.unwrap();
-        *MENSEN_MAP_INV.write().unwrap() = invert_map(&mensen);
-        *MENSEN_MAP.write().unwrap() = mensen;
+        let canteens = get_canteens_from_db().await.unwrap();
+        *CANTEEN_MAP_INV.write().unwrap() = invert_map(&canteens);
+        *CANTEEN_MAP.write().unwrap() = canteens;
     }
 
     // stuwe_request_funcs::_run_benchmark().await;
     // return;
 
-    if env::var_os("OPENMENSA").is_some() {
-        if let Err(e) = init_openmensa_mensen_with_data().await {
+    tokio::spawn(async {
+        if let Err(e) = init_openmensa_canteenlist().await {
             log::error!("OpenMensa list fetch failed: {}", e);
         }
-    }
+    });
 
     // always update cache on startup
     match update_cache().await {
@@ -47,7 +47,7 @@ async fn main() {
         Err(e) => log::error!("Cache update failed: {}", e),
     }
 
-    start_mensacache_and_campusdual_job().await;
+    start_canteen_cache_job().await;
 
     let listener = TcpListener::bind("0.0.0.0:9090")
         .await

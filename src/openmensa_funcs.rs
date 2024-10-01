@@ -1,4 +1,4 @@
-use std::vec;
+use std::{env, vec};
 
 use anyhow::Result;
 use axum::Json;
@@ -9,8 +9,8 @@ use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 use serde::Deserialize;
 
 use crate::{
-    constants::{OPENMENSA_ALL_MENSEN, OPENMENSA_LIVE_MENSEN},
-    types::Mensa,
+    constants::{OPENMENSA_ALL_CANTEENS, OPENMENSA_LIVE_CANTEENS},
+    types::Canteen,
 };
 
 #[derive(Deserialize)]
@@ -18,14 +18,11 @@ struct Day {
     closed: bool,
 }
 
-pub async fn init_openmensa_mensen_with_data() -> Result<()> {
-    if OPENMENSA_ALL_MENSEN.get().is_some() {
+pub async fn init_openmensa_canteenlist() -> Result<()> {
+    if OPENMENSA_ALL_CANTEENS.get().is_some() {
         log::info!("OpenMensa list already initialized");
         return Ok(());
     }
-
-    log::info!("Getting OpenMensa live mensen list, this might take a while");
-    let mut mensen_with_days = vec![];
 
     let reqwest_client = Client::builder().build().unwrap();
     let retry_policy = ExponentialBackoff::builder().build_with_max_retries(3);
@@ -33,25 +30,32 @@ pub async fn init_openmensa_mensen_with_data() -> Result<()> {
         .with(RetryTransientMiddleware::new_with_policy(retry_policy))
         .build();
 
-    let mensen: Vec<Mensa> = client
+    let all_canteens: Vec<Canteen> = client
         .get("https://openmensa.org/api/v2/canteens")
         .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
-    println!("got {} mensen", mensen.len());
-    OPENMENSA_ALL_MENSEN.set(mensen.clone()).unwrap();
+    log::info!("got {} canteens", all_canteens.len());
+    OPENMENSA_ALL_CANTEENS.set(all_canteens.clone()).unwrap();
 
-    for (iteration, mensa) in mensen.iter().enumerate() {
+    if env::var_os("FILTER_OPENMENSA").is_none() {
+        return Ok(());
+    };
+
+    log::info!("Filtering OpenMensa canteen list, this might take a while");
+    let mut canteens_with_days = vec![];
+
+    for (iteration, canteen) in all_canteens.iter().enumerate() {
         if iteration % 50 == 0 {
-            log::info!("{}%...", (iteration * 100) / mensen.len());
+            log::info!("{}%...", (iteration * 100) / all_canteens.len());
         }
 
         let days: Vec<Day> = client
             .get(format!(
                 "https://openmensa.org/api/v2/canteens/{}/days",
-                mensa.id
+                canteen.id
             ))
             .send()
             .await?
@@ -60,22 +64,24 @@ pub async fn init_openmensa_mensen_with_data() -> Result<()> {
             .await?;
 
         if !days.is_empty() && !days.iter().all(|day| day.closed) {
-            mensen_with_days.push(mensa.clone());
+            canteens_with_days.push(canteen.clone());
         }
     }
 
-    OPENMENSA_LIVE_MENSEN.set(mensen_with_days).unwrap();
+    log::info!(
+        "OpenMensa filtering done, {} canteens remain",
+        canteens_with_days.len()
+    );
+
+    OPENMENSA_LIVE_CANTEENS.set(canteens_with_days).unwrap();
     Ok(())
 }
 
-pub async fn get_openmensa_list() -> Result<Json<Vec<Mensa>>, StatusCode> {
-    if OPENMENSA_ALL_MENSEN.get().is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    if let Some(list) = OPENMENSA_LIVE_MENSEN.get() {
+pub async fn get_openmensa_canteens() -> Result<Json<Vec<Canteen>>, StatusCode> {
+    if let Some(list) = OPENMENSA_LIVE_CANTEENS.get() {
         Ok(Json(list.clone()))
-    } else if let Some(list) = OPENMENSA_ALL_MENSEN.get() {
-        log::warn!("OpenMensa live list not initialized, returning all mensen list");
+    } else if let Some(list) = OPENMENSA_ALL_CANTEENS.get() {
+        log::warn!("Not filtering OpenMensa list, consider Env FILTER_OPENMENSA=y");
         Ok(Json(list.clone()))
     } else {
         log::error!("OpenMensa list not initialized");
