@@ -3,12 +3,13 @@ COPY ./src ./src
 COPY ./Cargo.lock .
 COPY ./Cargo.toml .
 
-ENV PGOONLY=y
-RUN rustup component add llvm-tools-preview && \
-  cargo install cargo-pgo && \
-  cargo pgo build && \
-  cargo pgo run && \
-  cargo pgo optimize
+#ENV PGOONLY=y
+#RUN rustup component add llvm-tools-preview && \
+#  cargo install cargo-pgo && \
+#  cargo pgo build && \
+#  cargo pgo run && \
+#  cargo pgo optimize
+RUN cargo b -r
 
 FROM debian:bookworm-slim AS mensa-api
 RUN apt-get update && \

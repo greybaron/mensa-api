@@ -58,12 +58,12 @@ async fn main() {
     let app = routes::app().await;
 
     // used for building profiling data as i'm too lazy to set up test/bench
-    if env::var_os("PGOONLY").is_some() {
-        for _ in 0..20 {
-            update_cache().await.unwrap();
-        }
-        std::process::exit(0);
-    }
+    // if env::var_os("PGOONLY").is_some() {
+    //     for _ in 0..20 {
+    //         update_cache().await.unwrap();
+    //     }
+    //     std::process::exit(0);
+    // }
 
     axum::serve(listener, app)
         .await
