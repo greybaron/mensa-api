@@ -20,7 +20,8 @@ RUN apt-get update && \
   apt-get clean -y && \
   rm -rf /var/lib/apt/lists/*
 
-COPY --from=build ./target/*/release/mensa-api /app/mensa-api
+# COPY --from=build ./target/*/release/mensa-api /app/mensa-api
+COPY --from=build ./target/release/mensa-api /app/mensa-api
 WORKDIR /app/data
 EXPOSE 9090
 ENTRYPOINT ["/app/mensa-api"]
