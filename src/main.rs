@@ -1,7 +1,7 @@
 use constants::{CANTEEN_MAP, CANTEEN_MAP_INV};
 use openmensa_funcs::init_openmensa_canteenlist;
 use std::env;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::broadcast};
 
 mod constants;
 mod cronjobs;
@@ -42,12 +42,17 @@ async fn main() {
     });
 
     // always update cache on startup
-    match update_cache().await {
+    // dont pass 'today updated tx', this would cause erroneous WS broadcasts when cache
+    // is too outdated or doesnt exist
+    match update_cache(None).await {
         Ok(_) => log::info!("Cache updated!"),
         Err(e) => log::error!("Cache update failed: {}", e),
     }
 
-    start_canteen_cache_job().await;
+    // set up broadcast channel to notify WS clients whenever today's canteen plans changed
+    let (today_updated_tx, _) = broadcast::channel(20);
+
+    start_canteen_cache_job(today_updated_tx.clone()).await;
 
     let listener = TcpListener::bind("0.0.0.0:9090")
         .await
@@ -55,7 +60,7 @@ async fn main() {
 
     log::info!("Listening on {}", listener.local_addr().unwrap());
 
-    let app = routes::app().await;
+    let app = routes::app(today_updated_tx).await;
 
     // used for building profiling data as i'm too lazy to set up test/bench
     // if env::var_os("PGOONLY").is_some() {

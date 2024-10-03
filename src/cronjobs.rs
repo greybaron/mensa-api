@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Datelike, Duration, FixedOffset, NaiveDate, Weekday};
-use tokio::task::JoinSet;
+use tokio::{sync::broadcast, task::JoinSet};
 use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::{
@@ -8,14 +8,15 @@ use crate::{
     stuwe_request_funcs::{invert_map, parse_and_save_meals},
 };
 
-pub async fn start_canteen_cache_job() {
+pub async fn start_canteen_cache_job(today_updated_tx: broadcast::Sender<String>) {
     let sched = JobScheduler::new().await.unwrap();
 
     let cache_job = Job::new_async("0 0/5 * * * *", move |_uuid, mut _l| {
+        let today_updated_tx = today_updated_tx.clone(); // clone for async move
         Box::pin(async move {
             log::info!("Updating Canteens");
 
-            if let Err(e) = update_cache().await {
+            if let Err(e) = update_cache(Some(today_updated_tx)).await {
                 println!("Failed to update cache: {}", e);
             }
         })
@@ -25,7 +26,7 @@ pub async fn start_canteen_cache_job() {
     sched.start().await.unwrap();
 }
 
-pub async fn update_cache() -> Result<()> {
+pub async fn update_cache(today_updated_tx: Option<broadcast::Sender<String>>) -> Result<()> {
     // will be run periodically: requests all canteen plans for the next 7 days
     // returns a vector of canteens whose 'today' plan was updated (here only used for dbg logging)
 
@@ -63,6 +64,12 @@ pub async fn update_cache() -> Result<()> {
     let canteen_map_inv_now = CANTEEN_MAP_INV.read().unwrap();
     if canteen_map_inv_before != *canteen_map_inv_now {
         *CANTEEN_MAP.write().unwrap() = invert_map(&canteen_map_inv_now);
+    }
+
+    for canteen_id in canteens_changed_today.iter() {
+        if let Some(tx) = today_updated_tx.as_ref() {
+            tx.send(canteen_id.to_string()).unwrap();
+        }
     }
 
     log::info!(

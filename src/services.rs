@@ -1,12 +1,45 @@
-use axum::{extract::Path, Json};
+use axum::{
+    extract::{ws::WebSocket, Path, WebSocketUpgrade},
+    response::IntoResponse,
+    Json,
+};
 use chrono::NaiveDate;
 use http::StatusCode;
+use tokio::sync::broadcast;
 
 use crate::{
     constants::CANTEEN_MAP,
     db_operations::{get_meals_from_db, list_available_days_db},
     types::{Canteen, MealGroup, ResponseError},
 };
+
+// handler to upgrade http to websocket connection
+pub async fn ws_handler_today_upd(
+    ws: WebSocketUpgrade,
+    today_updated_tx: broadcast::Sender<String>,
+) -> impl IntoResponse {
+    // Upgrades the connection to a WebSocket and calls the `websocket` function to handle the connection.
+    log::info!("WebSocket client connected");
+    ws.on_upgrade(|socket| websocket_today_upd(socket, today_updated_tx))
+}
+
+// actual websocket handler after http->ws upgrade
+// broadcasts a mensa id whenever its today's menu is updated
+async fn websocket_today_upd(mut socket: WebSocket, today_updated_tx: broadcast::Sender<String>) {
+    // each websocket instance has its own receiver
+    let mut rx = today_updated_tx.subscribe();
+
+    while let Ok(msg) = rx.recv().await {
+        if socket
+            .send(axum::extract::ws::Message::Text(msg))
+            .await
+            .is_err()
+        {
+            // client has disconnected
+            break;
+        }
+    }
+}
 
 pub async fn get_canteens() -> Json<Vec<Canteen>> {
     let mut canteen_list: Vec<Canteen> = Vec::new();
