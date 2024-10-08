@@ -6,9 +6,10 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 use crate::{
     constants::{CANTEEN_MAP, CANTEEN_MAP_INV},
     stuwe_request_funcs::{invert_map, parse_and_save_meals},
+    types::CanteenMealDiff,
 };
 
-pub async fn start_canteen_cache_job(today_updated_tx: broadcast::Sender<String>) {
+pub async fn start_canteen_cache_job(today_updated_tx: broadcast::Sender<CanteenMealDiff>) {
     let sched = JobScheduler::new().await.unwrap();
 
     let cache_job = Job::new_async("0 0/5 * * * *", move |_uuid, mut _l| {
@@ -26,7 +27,9 @@ pub async fn start_canteen_cache_job(today_updated_tx: broadcast::Sender<String>
     sched.start().await.unwrap();
 }
 
-pub async fn update_cache(today_updated_tx: Option<broadcast::Sender<String>>) -> Result<()> {
+pub async fn update_cache(
+    today_updated_tx: Option<broadcast::Sender<CanteenMealDiff>>,
+) -> Result<()> {
     // will be run periodically: requests all canteen plans for the next 7 days
     // returns a vector of canteens whose 'today' plan was updated (here only used for dbg logging)
 
@@ -52,8 +55,8 @@ pub async fn update_cache(today_updated_tx: Option<broadcast::Sender<String>>) -
 
     while let Some(res) = set.join_next().await {
         match res? {
-            Ok(mut changed_canteen_ids) => {
-                canteens_changed_today.append(&mut changed_canteen_ids);
+            Ok(mut changed_canteen_diffs) => {
+                canteens_changed_today.append(&mut changed_canteen_diffs);
             }
             Err(e) => {
                 log::warn!("Error in cache execution: {}", e);
@@ -66,9 +69,9 @@ pub async fn update_cache(today_updated_tx: Option<broadcast::Sender<String>>) -
         *CANTEEN_MAP.write().unwrap() = invert_map(&canteen_map_inv_now);
     }
 
-    for canteen_id in canteens_changed_today.iter() {
-        if let Some(tx) = today_updated_tx.as_ref() {
-            tx.send(canteen_id.to_string()).unwrap();
+    if let Some(tx) = today_updated_tx.as_ref() {
+        for canteen_diff in &canteens_changed_today {
+            tx.send(canteen_diff.clone()).unwrap();
         }
     }
 

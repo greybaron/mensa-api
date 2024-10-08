@@ -7,9 +7,11 @@ use std::time::Instant;
 
 use crate::constants::CANTEEN_MAP_INV;
 use crate::db_operations::{add_canteen_id_db, get_jsonmeals_from_db, save_meal_to_db};
-use crate::types::{CanteenMealsDay, MealGroup, MealVariation, SingleMeal};
+use crate::types::{
+    CanteenMealDiff, CanteenMealsDay, HasChanges, MealGroup, MealVariation, SingleMeal,
+};
 
-pub async fn _run_benchmark() {
+pub async fn _run_benchmark() -> Result<()> {
     println!("downloading htmls");
     let today = chrono::Local::now();
 
@@ -18,11 +20,7 @@ pub async fn _run_benchmark() {
         let day: chrono::DateTime<chrono::FixedOffset> = (today + chrono::Duration::days(i)).into();
 
         if ![chrono::Weekday::Sat, chrono::Weekday::Sun].contains(&day.weekday()) {
-            strings.push(
-                reqwest_get_html_text(&build_date_string(day.date_naive()))
-                    .await
-                    .unwrap(),
-            );
+            strings.push(reqwest_get_html_text(&build_date_string(day.date_naive())).await?);
         }
     }
 
@@ -33,15 +31,17 @@ pub async fn _run_benchmark() {
     // ST
     for _ in 0..its {
         for string in &strings {
-            extract_data_from_html(string).await.unwrap();
+            extract_data_from_html(string).await?;
         }
     }
 
     println!("{} in {:.2?}", its * strings.len(), now.elapsed());
+
+    Ok(())
 }
 
-pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u32>> {
-    let mut today_changed_canteen_ids = vec![];
+pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<CanteenMealDiff>> {
+    let mut today_changed_canteen_diffs = vec![];
 
     let date_string = build_date_string(day);
 
@@ -57,7 +57,8 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u32>> {
             get_jsonmeals_from_db(&date_string, canteen_meals_singleday.canteen_id).await?;
 
         // if downloaded meals are different from cached meals, update cache
-        if db_json_text.is_none() || downloaded_json_text != db_json_text.unwrap() {
+        // if db_json_text.is_none() || downloaded_json_text != db_json_text.unwrap() {
+        if db_json_text.is_none() || downloaded_json_text != *db_json_text.as_ref().unwrap() {
             log::info!(
                 "updating cache: Canteen={} Date={}",
                 canteen_meals_singleday.canteen_id,
@@ -71,12 +72,131 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<u32>> {
             .await?;
 
             if day.weekday() == chrono::Local::now().weekday() {
-                today_changed_canteen_ids.push(canteen_meals_singleday.canteen_id);
+                let old_meals = db_json_text
+                    .map(|text| serde_json::from_str::<Vec<MealGroup>>(&text).unwrap())
+                    .map(|old_mealgroups| CanteenMealsDay {
+                        canteen_id: canteen_meals_singleday.canteen_id,
+                        meal_groups: old_mealgroups,
+                    });
+
+                let diff = diff_canteen_meals(old_meals, &canteen_meals_singleday);
+                if diff.has_changes() {
+                    today_changed_canteen_diffs.push(diff);
+                } else {
+                    log::warn!("DB != downloaded data, but diffing found nothing!");
+                }
             }
         }
     }
 
-    Ok(today_changed_canteen_ids)
+    Ok(today_changed_canteen_diffs)
+}
+
+pub fn diff_canteen_meals(
+    old_canteenmeals: Option<CanteenMealsDay>,
+    new_canteenmeals: &CanteenMealsDay,
+) -> CanteenMealDiff {
+    let mut new_meals: Vec<MealGroup> = vec![];
+    let mut modified_meals: Vec<MealGroup> = vec![];
+    let mut removed_meals: Vec<MealGroup> = vec![];
+
+    if let Some(old_canteenmeals) = old_canteenmeals {
+        assert_eq!(old_canteenmeals.canteen_id, new_canteenmeals.canteen_id);
+        for new_mealgroup in &new_canteenmeals.meal_groups {
+            let equiv_old_mealgroups = old_canteenmeals
+                .meal_groups
+                .iter()
+                .find(|old_group| old_group.meal_type == new_mealgroup.meal_type);
+            if equiv_old_mealgroups.is_none() {
+                // new category → all submeals are new
+                new_meals.push(new_mealgroup.clone());
+            } else {
+                // find new submeals
+                let new_or_changed_submeals =
+                    new_mealgroup.sub_meals.iter().filter(|new_submeal| {
+                        equiv_old_mealgroups
+                            .unwrap()
+                            .sub_meals
+                            .iter()
+                            .all(|old_submeal| (old_submeal != *new_submeal))
+                    });
+                // .cloned()
+                // .collect();
+
+                let (changed_submeals, new_submeals): (Vec<_>, Vec<_>) = new_or_changed_submeals
+                    .partition(|meal| {
+                        equiv_old_mealgroups
+                            .unwrap()
+                            .sub_meals
+                            .iter()
+                            .any(|old_submeal| old_submeal.name == meal.name)
+                    });
+
+                if !changed_submeals.is_empty() {
+                    modified_meals.push(MealGroup {
+                        meal_type: new_mealgroup.meal_type.clone(),
+                        sub_meals: changed_submeals.into_iter().cloned().collect(),
+                    });
+                }
+
+                if !new_submeals.is_empty() {
+                    new_meals.push(MealGroup {
+                        meal_type: new_mealgroup.meal_type.clone(),
+                        sub_meals: new_submeals.into_iter().cloned().collect(),
+                    });
+                }
+
+                let removed_submeals: Vec<_> = equiv_old_mealgroups
+                    .unwrap()
+                    .sub_meals
+                    .iter()
+                    .filter(|old_submeal| {
+                        new_mealgroup
+                            .sub_meals
+                            .iter()
+                            .all(|new_submeal| new_submeal.name != old_submeal.name)
+                    })
+                    .cloned()
+                    .collect();
+
+                if !removed_submeals.is_empty() {
+                    removed_meals.push(MealGroup {
+                        meal_type: new_mealgroup.meal_type.clone(),
+                        sub_meals: removed_submeals,
+                    });
+                }
+
+                // new_meals.push(new_mealgroup.iter())
+            }
+            // .collect::<Vec<&MealGroup>>();
+            // let new_meals = new_mealgroups.sub_meals.iter().filter(|sub_meal| old_can)
+        }
+
+        // new_meals = new_canteenmeals.meal_groups.iter().filter(|new_group| {
+        //     old_canteenmeals.meal_groups.iter().any(|old_group| old_group.)
+        // });
+    } else {
+        // new_meals = new_meals.meal_groups.clone();
+    }
+
+    CanteenMealDiff {
+        canteen_id: new_canteenmeals.canteen_id,
+        new_meals: if new_meals.is_empty() {
+            None
+        } else {
+            Some(new_meals)
+        },
+        modified_meals: if modified_meals.is_empty() {
+            None
+        } else {
+            Some(modified_meals)
+        },
+        removed_meals: if removed_meals.is_empty() {
+            None
+        } else {
+            Some(removed_meals)
+        },
+    }
 }
 
 pub fn build_date_string(requested_date: NaiveDate) -> String {

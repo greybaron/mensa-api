@@ -10,26 +10,45 @@ use tokio::sync::broadcast;
 use crate::{
     constants::CANTEEN_MAP,
     db_operations::{get_meals_from_db, list_available_days_db},
-    types::{Canteen, MealGroup, ResponseError},
+    types::{Canteen, CanteenMealDiff, MealGroup, ResponseError},
 };
 
-// handler to upgrade http to websocket connection
-pub async fn ws_handler_today_upd(
+// handler to upgrade http to websocket connection (WS only sends IDs)
+pub async fn ws_handler_today_upd_id(
     ws: WebSocketUpgrade,
-    today_updated_tx: broadcast::Sender<String>,
+    today_updated_tx: broadcast::Sender<CanteenMealDiff>,
 ) -> impl IntoResponse {
     // Upgrades the connection to a WebSocket and calls the `websocket` function to handle the connection.
-    log::info!("WebSocket client connected");
-    ws.on_upgrade(|socket| websocket_today_upd(socket, today_updated_tx))
+    log::info!("WebSocket client connected (ID only)");
+    ws.on_upgrade(|socket| websocket_today_upd(socket, today_updated_tx, false))
+}
+
+// http → websocket (WS sends diff)
+pub async fn ws_handler_today_upd_diff(
+    ws: WebSocketUpgrade,
+    today_updated_tx: broadcast::Sender<CanteenMealDiff>,
+) -> impl IntoResponse {
+    // Upgrades the connection to a WebSocket and calls the `websocket` function to handle the connection.
+    log::info!("WebSocket client connected (ID+diff)");
+    ws.on_upgrade(|socket| websocket_today_upd(socket, today_updated_tx, true))
 }
 
 // actual websocket handler after http->ws upgrade
-// broadcasts a mensa id whenever its today's menu is updated
-async fn websocket_today_upd(mut socket: WebSocket, today_updated_tx: broadcast::Sender<String>) {
+// broadcasts either only the mensa id or a more complex diff whenever its today's menu is updated
+pub async fn websocket_today_upd(
+    mut socket: WebSocket,
+    today_updated_tx: broadcast::Sender<CanteenMealDiff>,
+    send_diff: bool,
+) {
     // each websocket instance has its own receiver
     let mut rx = today_updated_tx.subscribe();
 
     while let Ok(msg) = rx.recv().await {
+        let msg = if send_diff {
+            serde_json::to_string(&msg).unwrap()
+        } else {
+            msg.canteen_id.to_string()
+        };
         if socket
             .send(axum::extract::ws::Message::Text(msg))
             .await
