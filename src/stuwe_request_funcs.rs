@@ -120,8 +120,6 @@ pub fn diff_canteen_meals(
                             .iter()
                             .all(|old_submeal| (old_submeal != *new_submeal))
                     });
-                // .cloned()
-                // .collect();
 
                 let (changed_submeals, new_submeals): (Vec<_>, Vec<_>) = new_or_changed_submeals
                     .partition(|meal| {
@@ -146,6 +144,7 @@ pub fn diff_canteen_meals(
                     });
                 }
 
+                // find removed submeals if the category already exists in old data
                 let removed_submeals: Vec<_> = equiv_old_mealgroups
                     .unwrap()
                     .sub_meals
@@ -165,18 +164,19 @@ pub fn diff_canteen_meals(
                         sub_meals: removed_submeals,
                     });
                 }
-
-                // new_meals.push(new_mealgroup.iter())
             }
-            // .collect::<Vec<&MealGroup>>();
-            // let new_meals = new_mealgroups.sub_meals.iter().filter(|sub_meal| old_can)
         }
 
-        // new_meals = new_canteenmeals.meal_groups.iter().filter(|new_group| {
-        //     old_canteenmeals.meal_groups.iter().any(|old_group| old_group.)
-        // });
-    } else {
-        // new_meals = new_meals.meal_groups.clone();
+        // find removed categories
+        for old_meal_group in &old_canteenmeals.meal_groups {
+            if !new_canteenmeals
+                .meal_groups
+                .iter()
+                .any(|new_group| new_group.meal_type == old_meal_group.meal_type)
+            {
+                removed_meals.push(old_meal_group.clone());
+            }
+        }
     }
 
     CanteenMealDiff {
