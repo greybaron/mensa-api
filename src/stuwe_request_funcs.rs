@@ -73,6 +73,7 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<CanteenMealDiff>
 
             if day.weekday() == chrono::Local::now().weekday() {
                 let old_meals = db_json_text
+                    .as_ref()
                     .map(|text| serde_json::from_str::<Vec<MealGroup>>(&text).unwrap())
                     .map(|old_mealgroups| CanteenMealsDay {
                         canteen_id: canteen_meals_singleday.canteen_id,
@@ -81,6 +82,16 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<CanteenMealDiff>
 
                 let diff = diff_canteen_meals(old_meals, &canteen_meals_singleday);
                 if diff.has_changes() {
+                    if diff.canteen_id == 118 {
+                        std::fs::write(
+                            format!("{}_OLD.json", date_string),
+                            db_json_text.unwrap_or_default(),
+                        )
+                        .unwrap();
+                        std::fs::write(format!("{}_NEW.json", date_string), downloaded_json_text)
+                            .unwrap();
+                    }
+
                     today_changed_canteen_diffs.push(diff);
                 } else {
                     log::warn!("DB != downloaded data, but diffing found nothing!");
