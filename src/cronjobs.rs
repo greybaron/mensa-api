@@ -71,7 +71,14 @@ pub async fn update_cache(
 
     if let Some(tx) = today_updated_tx.as_ref() {
         for canteen_diff in &canteens_changed_today {
-            tx.send(canteen_diff.clone()).unwrap();
+            match tx.send(canteen_diff.clone()) {
+                Ok(subs) => {
+                    log::info!("Broadcasted canteen diff to {} subscribers", subs);
+                }
+                Err(_) => {
+                    log::debug!("No subscribers listening to canteen diff broadcast");
+                }
+            }
         }
     }
 
