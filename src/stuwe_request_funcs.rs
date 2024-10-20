@@ -79,10 +79,10 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<CanteenMealDiff>
                         meal_groups: old_mealgroups,
                     });
 
-                let diff = diff_canteen_meals(old_meals, &canteen_meals_singleday);
+                let diff = diff_canteen_meals(old_meals.as_ref(), &canteen_meals_singleday);
                 if diff.has_changes() {
                     today_changed_canteen_diffs.push(diff);
-                } else {
+                } else if old_meals.is_some() {
                     log::warn!("DB != downloaded data, but diffing found nothing!");
                 }
             }
@@ -93,7 +93,7 @@ pub async fn parse_and_save_meals(day: NaiveDate) -> Result<Vec<CanteenMealDiff>
 }
 
 pub fn diff_canteen_meals(
-    old_canteenmeals: Option<CanteenMealsDay>,
+    old_canteenmeals: Option<&CanteenMealsDay>,
     new_canteenmeals: &CanteenMealsDay,
 ) -> CanteenMealDiff {
     let mut new_meals: Vec<MealGroup> = vec![];
@@ -261,7 +261,7 @@ async fn extract_data_from_html(html_text: &str) -> Result<Vec<CanteenMealsDay>>
                 // the value needs to be added (only writes lock exclusively)
                 .is_none()
             {
-                log::warn!("Adding new canteen to db: {}", canteen_name);
+                log::info!("Adding new canteen to db: {}", canteen_name);
                 add_canteen_id_db(extr_id, &canteen_name)?;
             };
 
