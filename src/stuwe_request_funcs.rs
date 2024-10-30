@@ -361,6 +361,10 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                     let iter = inner_html.split('·').map(|slice| slice.trim().to_string());
                     for ingr in iter {
                         let clean = ingr.replace("&nbsp;", " ").replace("&amp; ", "");
+                        let clean = clean
+                            .strip_prefix("/")
+                            .map(|s| s.to_string())
+                            .unwrap_or(clean);
                         if !add_ingr_dedup.contains(&clean) {
                             add_ingr_dedup.push(clean);
                         }
@@ -409,10 +413,15 @@ fn extract_mealgroup_from_htmlcontainer(meal_container: ElementRef<'_>) -> Resul
                     .next()
                     .map(|el| el.text().last().unwrap().replace(": ", "").to_string());
 
-                variations_vec.push(MealVariation {
+                let variation = MealVariation {
                     name,
                     allergens_and_add,
-                });
+                };
+
+                // deduplicate here as well
+                if !variations_vec.contains(&variation) {
+                    variations_vec.push(variation);
+                }
             }
 
             variations_vec
