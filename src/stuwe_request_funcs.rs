@@ -98,6 +98,7 @@ pub fn diff_canteen_meals(
 ) -> CanteenMealDiff {
     let mut new_meals: Vec<MealGroup> = vec![];
     let mut modified_meals: Vec<MealGroup> = vec![];
+    let mut modified_meals_ignoring_allergens: Vec<MealGroup> = vec![];
     let mut removed_meals: Vec<MealGroup> = vec![];
 
     if let Some(old_canteenmeals) = old_canteenmeals {
@@ -121,6 +122,21 @@ pub fn diff_canteen_meals(
                             .all(|old_submeal| (old_submeal != *new_submeal))
                     });
 
+                let new_or_changed_ignoring_allergens =
+                    new_mealgroup.sub_meals.iter().filter(|new_submeal| {
+                        equiv_old_mealgroups
+                            .unwrap()
+                            .sub_meals
+                            .iter()
+                            .all(|old_submeal| {
+                                old_submeal.name != *new_submeal.name
+                                    || old_submeal.additional_ingredients
+                                        != *new_submeal.additional_ingredients
+                                    || old_submeal.variations != new_submeal.variations
+                                    || old_submeal.price != *new_submeal.price
+                            })
+                    });
+
                 let (changed_submeals, new_submeals): (Vec<_>, Vec<_>) = new_or_changed_submeals
                     .partition(|meal| {
                         equiv_old_mealgroups
@@ -130,10 +146,30 @@ pub fn diff_canteen_meals(
                             .any(|old_submeal| old_submeal.name == meal.name)
                     });
 
+                let changed_submeals_ignoring_allergens = new_or_changed_ignoring_allergens
+                    .filter(|meal| {
+                        equiv_old_mealgroups
+                            .unwrap()
+                            .sub_meals
+                            .iter()
+                            .any(|old_submeal| old_submeal.name == meal.name)
+                    })
+                    .collect::<Vec<_>>();
+
                 if !changed_submeals.is_empty() {
                     modified_meals.push(MealGroup {
                         meal_type: new_mealgroup.meal_type.clone(),
                         sub_meals: changed_submeals.into_iter().cloned().collect(),
+                    });
+                }
+
+                if !changed_submeals_ignoring_allergens.is_empty() {
+                    modified_meals_ignoring_allergens.push(MealGroup {
+                        meal_type: new_mealgroup.meal_type.clone(),
+                        sub_meals: changed_submeals_ignoring_allergens
+                            .into_iter()
+                            .cloned()
+                            .collect(),
                     });
                 }
 
@@ -190,6 +226,11 @@ pub fn diff_canteen_meals(
             None
         } else {
             Some(modified_meals)
+        },
+        modified_meals_ignoring_allergens: if modified_meals_ignoring_allergens.is_empty() {
+            None
+        } else {
+            Some(modified_meals_ignoring_allergens)
         },
         removed_meals: if removed_meals.is_empty() {
             None
